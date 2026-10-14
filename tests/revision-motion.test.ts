@@ -69,7 +69,7 @@ test("gravity rotation preserves the physical pivot instead of teleporting the b
   }
 });
 
-test("empty shoes unlock before the reset cam rotates them and relock at home", () => {
+test("empty shoes unlock before the reset servo rotates them and relock at home", () => {
   expect(revisionPose(23.5, PRESETS[1], "integrated").lock).toBe(true);
   expect(revisionPose(24.5, PRESETS[1], "integrated").lock).toBe(false);
   expect(revisionPose(25, PRESETS[1], "integrated").lock).toBe(true);
@@ -86,3 +86,20 @@ test.each(PRESETS)(
     expect(seated.spin / (2 * Math.PI)).toBeCloseTo(spec.length / spec.pitch);
   },
 );
+
+test("handover relaxes, lowers, then opens the shoes while the head stays clamped", () => {
+  for (const spec of PRESETS) {
+    const closed = revisionPose(22, spec, "integrated");
+    const relaxed = revisionPose(22.1, spec, "integrated");
+    const lowered = revisionPose(22.3, spec, "integrated");
+    expect(relaxed.gap - closed.gap).toBeCloseTo(0.15);
+    expect(relaxed.carriageZ).toBe(0);
+    expect(lowered.carriageZ).toBe(2);
+    expect(lowered.gap).toBeCloseTo(relaxed.gap);
+    expect(lowered.clamp).toBe(1);
+    expect(revisionBoltMatrix(lowered).elements).toEqual(
+      revisionBoltMatrix(closed).elements,
+    );
+    expect(revisionPose(23, spec, "integrated").carriageZ).toBe(2);
+  }
+});

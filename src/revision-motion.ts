@@ -3,8 +3,8 @@ import { ramp, type BoltSpec } from "./timeline";
 import { hasFeature, type HeadType, type RevisionId } from "./revision-config";
 
 export const REVISION_BODY = {
-  radius: 39,
-  length: 148,
+  radius: 70,
+  length: 210,
   nose: 18,
   grasp: 2.5,
   feed: 24,
@@ -34,7 +34,7 @@ export function boltMassProperties(spec: BoltSpec) {
   };
 }
 const gravitySamples = new Map<string, number[]>();
-/** Damped pendulum approximation; balanced shoes assumed. End guide supplies final alignment. */
+/** Damped pendulum approximation; balanced shoes assumed. The shaft servo supplies final alignment. */
 export function gravityAngle(seconds: number, spec: BoltSpec) {
   let samples = gravitySamples.get(spec.id);
   if (!samples) {
@@ -88,17 +88,22 @@ export function revisionPose(
   const time = Math.max(0, Math.min(70, Number.isFinite(input) ? input : 0));
   const grip = ramp(time, 3, 5),
     feed = ramp(time, 16, 20),
-    release = ramp(time, 22, 23);
+    release = ramp(time, 22.3, 23);
   const stow = ramp(time, 23, 25),
-    reload = ramp(time, 65, 68.5),
+    reload = ramp(time, 66, 68.5),
     close = ramp(time, 68.5, 70);
   const clamp = ramp(time, 20, 22) * (1 - ramp(time, 63, 64));
   const angle = hasFeature(id, "gravity")
     ? gravityAngle(time - 8, spec) * (1 - ramp(time, 12, 14))
     : (-Math.PI / 2) * (1 - ramp(time, 8, 14));
   const align = 1 + angle / (Math.PI / 2);
+  const carriageZ =
+    (REVISION_BODY.feed * (1 - feed) - REVISION_BODY.stow * stow) *
+      (1 - reload) +
+    REVISION_BODY.feed * reload +
+    2 * ramp(time, 22.1, 22.3) * (1 - stow) * (1 - reload);
   const shoeAngle =
-    angle * (1 - ramp(time, 24, 25)) - (Math.PI / 2) * ramp(time, 24, 25);
+    time < 24 ? angle : time < 25 ? shoeResetAngle(carriageZ) : -Math.PI / 2;
   const run = ramp(time, 39, 60);
   const pilot = ramp(time, 36, 39) * 4 * Math.PI;
   const spin =
@@ -112,7 +117,9 @@ export function revisionPose(
       ? 2 * ramp(time, 36, 39) * (1 - ramp(time, 63, 65))
       : 0;
   const closed = spec.diameter * 500 + 2;
-  const gap = (closed + 4 - 4 * grip) * (1 - release) + 23 * release;
+  const gap =
+    (closed + 4 - 4 * grip + 0.15 * ramp(time, 22, 22.1)) * (1 - release) +
+    28 * release;
   return {
     time,
     grip,
@@ -127,10 +134,7 @@ export function revisionPose(
     bitAngle,
     inserted,
     gap: gap + (closed + 4 - gap) * close,
-    carriageZ:
-      (REVISION_BODY.feed * (1 - feed) - REVISION_BODY.stow * stow) *
-        (1 - reload) +
-      REVISION_BODY.feed * reload,
+    carriageZ,
     lock: time < 8 || (time >= 14 && time < 23.8) || time >= 25,
     home: time < 8 || time >= 25,
     brake: time < 31 || time >= 63,
@@ -141,6 +145,10 @@ export function revisionPose(
   };
 }
 export type RevisionPose = ReturnType<typeof revisionPose>;
+export function shoeResetAngle(carriageZ: number) {
+  const fraction = Math.max(0, Math.min(1, (-carriageZ - 18) / 18));
+  return (-Math.PI / 2) * fraction;
+}
 export function revisionBoltMatrix(s: RevisionPose) {
   return new Matrix4()
     .makeTranslation(

@@ -48,9 +48,32 @@ test("all bolt sizes and head types can traverse the complete cycle without erro
     await page.locator("#bolt").selectOption(spec.id);
     for (const head of HEADS) {
       await page.locator("#head").selectOption(head.id);
-      for (const stage of REVISION_STAGES)
-        await page.locator("#timeline").fill(String(stage.start));
-      await page.locator("#timeline").fill(String(DURATION));
+      await page.evaluate(
+        async ({ times, spec, head }) => {
+          const timeline = document.getElementById(
+            "timeline",
+          ) as HTMLInputElement;
+          for (const time of times) {
+            timeline.value = String(time);
+            timeline.dispatchEvent(new Event("input", { bubbles: true }));
+            await new Promise<void>((resolve) =>
+              requestAnimationFrame(() => resolve()),
+            );
+            const play = document.getElementById("play") as HTMLButtonElement;
+            const loading = document.getElementById("loading")!;
+            const shown = document.getElementById("current-time")!.textContent;
+            if (play.disabled || !loading.hidden || shown !== time.toFixed(1))
+              throw new Error(
+                `${spec}/${head} @ ${time}: ${document.getElementById("loading-text")!.textContent}; play disabled=${play.disabled}; displayed time=${shown}`,
+              );
+          }
+        },
+        {
+          times: [...REVISION_STAGES.map((stage) => stage.start), DURATION],
+          spec: spec.id,
+          head: head.id,
+        },
+      );
       await expect(page.locator("#current-time")).toHaveText("70.0");
       await expect(page.locator("#app-status")).toHaveText("동작 완료");
     }

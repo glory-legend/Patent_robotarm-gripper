@@ -25,12 +25,12 @@ app.innerHTML = `
 <a class="skip-link" href="#main">본문으로 건너뛰기</a>
 <header class="topbar">
   <a class="brand" href="./" aria-label="볼트 그리퍼 처음으로"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="m16 3 11 6.5v13L16 29 5 22.5v-13Z"/><circle cx="16" cy="16" r="5"/><path d="M16 3v8m0 10v8"/></svg><span>볼트 그리퍼<small>구조와 동작</small></span></a>
-  <nav aria-label="페이지 목차"><a href="#explanation">설계 설명</a><a href="./patents.html">유사 특허 ↗</a></nav>
+  <nav aria-label="페이지 목차"><a href="./comparison.html">제품 형태 비교</a><a href="#explanation">설계 설명</a><a href="./patents.html">유사 특허 ↗</a></nav>
 </header>
 <main id="main" class="workspace" tabindex="-1">
   <div class="model-column">
     <section class="model-sheet" aria-labelledby="model-title">
-      <div class="scene-heading"><div><p class="eyebrow">집기 · 정렬 · 인계 · 체결</p><h1 id="model-title">${revision.title}</h1><p id="model-summary">${revision.summary}</p></div><div class="drawing-mark" aria-label="선택한 설계안"><span>설계안</span><strong id="revision-code">${revision.code}</strong></div></div>
+      <div class="scene-heading"><div><p class="eyebrow">집기 · 정렬 · 인계 · 가체결</p><h1 id="model-title">${revision.title}</h1><p id="model-summary">${revision.summary}</p></div><div class="drawing-mark" aria-label="선택한 설계안"><span>설계안</span><strong id="revision-code">${revision.code}</strong></div></div>
       <div id="viewport" class="viewport" aria-label="그리퍼 3D 모델">
         <div class="view-controls" role="group" aria-label="시점 선택"><button data-view="perspective" aria-pressed="true" disabled>입체</button><button data-view="front" aria-pressed="false" disabled>정면</button><button data-view="side" aria-pressed="false" disabled>측면</button></div>
         <div class="camera-controls" role="group" aria-label="카메라 조작"><button id="rotate-left" aria-label="시점 왼쪽으로 회전" title="시점 왼쪽으로 회전" disabled>↶</button><button id="rotate-right" aria-label="시점 오른쪽으로 회전" title="시점 오른쪽으로 회전" disabled>↷</button><button id="zoom-in" aria-label="확대" title="확대" disabled>＋</button><button id="zoom-out" aria-label="축소" title="축소" disabled>−</button></div>
@@ -57,7 +57,7 @@ app.innerHTML = `
     <details class="sources"><summary>구조와 설계 근거</summary><ul id="revision-sources"></ul><a href="./patents.html">관련 특허 살펴보기 ↗</a><p><a href="https://github.com/glory-legend/Patent_robotarm-gripper/blob/main/docs/GRIPPER_REVIEW.md" target="_blank" rel="noopener noreferrer">그리퍼 설계 검토 문서 ↗</a></p></details>
   </aside>
 </main>
-<footer class="footer"><span id="app-status" role="status">모델 불러오는 중</span><span>볼트 빈피킹 · 헤드 체결</span></footer>`;
+<footer class="footer"><span id="app-status" role="status">모델 불러오는 중</span><span>볼트 빈피킹 · 헤드 가체결</span></footer>`;
 
 let viewer: RevisionViewer | undefined;
 let time = 0;

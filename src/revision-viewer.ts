@@ -1,11 +1,19 @@
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { disposeObject } from "./models";
-import { loadWrist } from "./r11-real";
-import { PRESETS, ramp, type BoltSpec } from "./timeline";
-import { makeRevisionGripper, makeRevisionWorkpiece } from "./revision-model";
+import { disposeObject, loadRobot } from "./models";
+import { flangeAtPath } from "./kinematics";
+import { PRESETS, type BoltSpec } from "./timeline";
+import { makeRevisionGripper } from "./revision-model";
 import { HEAD_ANGLE, REVISION_BODY, revisionPose } from "./revision-motion";
+import {
+  ROBOT_BASE,
+  makeRevisionFixtures,
+  revisionScenePose,
+  revisionBoltWorld,
+  robotFlangeTarget,
+  solveRevisionJoints,
+} from "./revision-scene";
 import {
   hasFeature,
   type RevisionId,
@@ -19,24 +27,27 @@ export class RevisionViewer {
   private renderer: T.WebGLRenderer;
   private controls: OrbitControls;
   private holder = new T.Group();
+  private tool = new T.Group();
   private model = makeRevisionGripper("integrated", PRESETS[1], "hex");
-  private wrist: T.Group | null = null;
+  private robot: Awaited<ReturnType<typeof loadRobot>> | null = null;
+  private joints: number[] | undefined;
   private spec: BoltSpec = PRESETS[1];
   private revision: RevisionId = "integrated";
   private head: HeadType = "hex";
   private time = 0;
   private mode: InspectionMode = "assembled";
+  private view: "perspective" | "front" | "side" = "perspective";
   private amount = 0.5;
   private resizeObserver: ResizeObserver;
   private labels: HTMLSpanElement[] = [];
   private vision = document.createElement("div");
   private environment: T.WebGLRenderTarget;
-  private workpiece = makeRevisionWorkpiece(PRESETS[1]);
+  private fixtures = makeRevisionFixtures(PRESETS[1], "hex");
   private disposed = false;
   private invalid = false;
   constructor(
     private host: HTMLElement,
-    onError: (message: string) => void,
+    private onError: (message: string) => void,
   ) {
     this.renderer = new T.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
@@ -61,7 +72,7 @@ export class RevisionViewer {
       "(prefers-reduced-motion: reduce)",
     ).matches;
     this.controls.minDistance = 0.13;
-    this.controls.maxDistance = 1.2;
+    this.controls.maxDistance = 2;
     this.controls.target.set(0, 0.052, 0);
     const pmrem = new T.PMREMGenerator(this.renderer);
     const room = new RoomEnvironment();
@@ -77,14 +88,17 @@ export class RevisionViewer {
     fill.position.set(0.5, 0.1, -0.4);
     this.scene.add(fill);
     this.holder.rotation.x = Math.PI / 2;
-    this.holder.add(this.model.root);
+    this.tool.name = "robot-mounted-tool";
+    this.tool.matrixAutoUpdate = false;
+    this.tool.add(this.model.root);
+    this.holder.add(this.tool, this.fixtures.root);
     this.scene.add(this.holder);
-    this.holder.add(this.workpiece);
     this.syncLabels();
     this.setView("perspective");
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
     this.resize();
+    this.update();
     this.renderer.domElement.addEventListener("webglcontextlost", (event) => {
       event.preventDefault();
       this.invalid = true;
@@ -92,14 +106,14 @@ export class RevisionViewer {
     });
   }
   async load() {
-    const wrist = await loadWrist(0.55);
+    const robot = await loadRobot(() => {});
     if (this.disposed) {
-      disposeObject(wrist);
+      disposeObject(robot.root);
       return;
     }
-    wrist.position.z = -REVISION_BODY.length / 1000;
-    this.wrist = wrist;
-    this.holder.add(wrist);
+    robot.root.applyMatrix4(ROBOT_BASE);
+    this.robot = robot;
+    this.holder.add(robot.root);
     this.update();
   }
   private resize() {
@@ -121,10 +135,15 @@ export class RevisionViewer {
     });
   }
   private rebuild() {
-    this.holder.remove(this.model.root);
+    this.model.root.add(this.model.bolt);
+    this.tool.remove(this.model.root);
     disposeObject(this.model.root);
     this.model = makeRevisionGripper(this.revision, this.spec, this.head);
-    this.holder.add(this.model.root);
+    this.tool.add(this.model.root);
+    this.holder.remove(this.fixtures.root);
+    disposeObject(this.fixtures.root);
+    this.fixtures = makeRevisionFixtures(this.spec, this.head);
+    this.holder.add(this.fixtures.root);
     this.syncLabels();
     this.update();
   }
@@ -137,10 +156,6 @@ export class RevisionViewer {
   setSpec(spec: BoltSpec) {
     this.spec = spec;
     this.time = 0;
-    this.holder.remove(this.workpiece);
-    disposeObject(this.workpiece);
-    this.workpiece = makeRevisionWorkpiece(spec);
-    this.holder.add(this.workpiece);
     this.rebuild();
   }
   setHead(head: HeadType) {
@@ -159,6 +174,7 @@ export class RevisionViewer {
     this.update();
   }
   setInspection(mode: InspectionMode, amount: number) {
+    const changed = mode !== this.mode;
     this.mode = mode;
     this.amount = T.MathUtils.clamp(
       Number.isFinite(amount) ? amount : 0.5,
@@ -166,11 +182,74 @@ export class RevisionViewer {
       1,
     );
     this.update();
+    if (changed) this.setView(this.view);
   }
   private update() {
+    const scenePose = revisionScenePose(
+      this.time,
+      this.spec,
+      this.revision,
+      this.head,
+    );
+    const solved = solveRevisionJoints(
+      robotFlangeTarget(scenePose.tool),
+      this.joints,
+    );
+    if (solved.positionError > 0.00005 || solved.angleError > 0.0005) {
+      this.onError(
+        "로봇 도달 오차가 허용 범위를 넘었습니다. 다른 단계나 규격을 선택하세요.",
+      );
+      return;
+    }
+    this.joints = solved.joints;
+    if (this.robot) {
+      this.robot.joints.forEach(
+        (joint, i) => (joint.rotation.z = solved.joints[i]),
+      );
+      this.robot.root.visible = this.mode === "assembled";
+    }
+    const toolMount = new T.Matrix4().makeTranslation(
+      0,
+      0,
+      REVISION_BODY.length / 1000,
+    );
+    if (this.robot && this.mode === "assembled") {
+      this.robot.flange.add(this.tool);
+      this.tool.matrix.copy(toolMount);
+    } else {
+      this.holder.add(this.tool);
+      this.tool.matrix
+        .copy(ROBOT_BASE)
+        .multiply(flangeAtPath(solved.joints))
+        .multiply(toolMount);
+    }
     this.holder.updateMatrixWorld(true);
-    this.model.update(this.time, this.mode, this.amount);
-    if (this.wrist) this.wrist.visible = this.mode === "assembled";
+    this.model.root.add(this.model.bolt);
+    const world =
+      scenePose.owner === "tool"
+        ? undefined
+        : this.holder.matrixWorld
+            .clone()
+            .multiply(
+              revisionBoltWorld(this.time, this.spec, this.revision, this.head),
+            );
+    const boltLocal = world
+      ? this.model.root.matrixWorld.clone().invert().multiply(world)
+      : undefined;
+    this.model.update(this.time, this.mode, this.amount, boltLocal);
+    if (world && this.mode === "assembled") {
+      const parent =
+        scenePose.owner === "pickup"
+          ? this.fixtures.pickup
+          : this.fixtures.workpiece;
+      parent.add(this.model.bolt);
+      this.model.bolt.matrix.copy(
+        parent.matrixWorld.clone().invert().multiply(world),
+      );
+    }
+    this.model.bolt.userData.owner = scenePose.owner;
+    this.fixtures.root.visible = this.mode === "assembled";
+    this.holder.updateMatrixWorld(true);
     const p = revisionPose(this.time, this.spec, this.revision, this.head);
     this.vision.hidden = !(
       this.head !== "hex" &&
@@ -183,27 +262,25 @@ export class RevisionViewer {
       const cross = this.head === "phillips" ? '<path d="M0 -15V15"/>' : "";
       this.vision.innerHTML = `<strong>홈 방향 정렬 · 예시</strong><svg viewBox="0 0 180 72" aria-hidden="true"><circle cx="42" cy="35" r="24"/><circle cx="133" cy="35" r="24"/><g transform="translate(42 35) rotate(${(-HEAD_ANGLE * 180) / Math.PI})" class="groove"><path d="M-15 0H15"/>${cross}</g><g transform="translate(133 35) rotate(${-degrees})" class="driver"><path d="M-15 0H15"/>${cross}</g><path class="arrow" d="M78 35h20m-5-5 5 5-5 5"/></svg><p>홈 38° <span>비트 ${degrees.toFixed(0)}°</span></p><small>${this.time < 27 ? "비트 후퇴 · 홈 촬영" : this.time < 29 ? "홀더 잠금 · 비트만 정렬" : "상대 깊이 확인 · 비트 삽입"}</small>`;
     }
-    this.workpiece.visible =
-      this.mode === "assembled" && this.time >= 31 && this.time < 68;
-    const compression =
-      this.time > 63
-        ? revisionPose(63, this.spec, this.revision, this.head).compression
-        : p.compression;
-    this.workpiece.position.z =
-      (this.spec.length * 1000 * (1 - p.inserted) -
-        compression +
-        30 * (1 - ramp(this.time, 31, 36)) +
-        50 * ramp(this.time, 63, 67)) /
-      1000;
   }
   setView(view: "perspective" | "front" | "side") {
-    const target = new T.Vector3(0, 0.052, 0);
+    this.view = view;
+    const target =
+      view === "perspective"
+        ? new T.Vector3(-0.12, 0.18, 0)
+        : new T.Vector3(0, 0.04, 0);
     const offset =
       view === "front"
-        ? new T.Vector3(0, 0.025, 0.46)
+        ? new T.Vector3(0, 0.035, 0.65)
         : view === "side"
-          ? new T.Vector3(0.46, 0.025, 0)
-          : new T.Vector3(0.25, 0.125, 0.39);
+          ? new T.Vector3(0.65, 0.035, 0)
+          : new T.Vector3(0.6, 0.3, 1.1);
+    if (this.mode !== "assembled") {
+      target
+        .set(0, 0, -REVISION_BODY.length / 2)
+        .applyMatrix4(this.model.root.matrixWorld);
+      offset.setLength(0.52);
+    }
     this.camera.position.copy(target).add(offset);
     this.controls.target.copy(target);
     this.controls.update();
@@ -219,7 +296,7 @@ export class RevisionViewer {
       .clone()
       .sub(this.controls.target)
       .multiplyScalar(factor);
-    v.clampLength(0.13, 1.2);
+    v.clampLength(0.13, 2);
     this.camera.position.copy(this.controls.target).add(v);
     this.controls.update();
   }

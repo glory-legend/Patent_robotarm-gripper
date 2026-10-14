@@ -17,6 +17,7 @@ export default defineConfig({
         main: "index.html",
         r11: "r11.html",
         patents: "patents.html",
+        comparison: "comparison.html",
       },
     },
   },

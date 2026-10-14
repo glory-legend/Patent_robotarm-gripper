@@ -1,4 +1,6 @@
 import * as T from "three";
+import { makeRevisionGrip } from "./revision-grip";
+import { makeRevisionHeadDrive } from "./revision-head-drive";
 import { ramp, type BoltSpec } from "./timeline";
 import {
   hasFeature,
@@ -7,7 +9,6 @@ import {
   type InspectionMode,
 } from "./revision-config";
 import {
-  HEAD_ANGLE,
   REVISION_BODY as B,
   revisionBoltMatrix,
   revisionPose,
@@ -118,6 +119,34 @@ export function makeRevisionGripper(
       [0, 0, z],
     );
   }
+  function boredBox(
+    p: T.Object3D,
+    size: number[],
+    at: number[],
+    holes: number[][],
+    m: T.Material,
+    name: string,
+  ) {
+    const shape = new T.Shape();
+    const [x, y, z] = size;
+    shape.moveTo(-x / 2, -y / 2);
+    shape.lineTo(x / 2, -y / 2);
+    shape.lineTo(x / 2, y / 2);
+    shape.lineTo(-x / 2, y / 2);
+    shape.closePath();
+    for (const [hx, hy, radius] of holes) {
+      const h = new T.Path();
+      h.absarc(hx, hy, radius, 0, 2 * Math.PI, true);
+      shape.holes.push(h);
+    }
+    return mesh(
+      p,
+      new T.ExtrudeGeometry(shape, { depth: z, bevelEnabled: false }),
+      m,
+      name,
+      [at[0], at[1], at[2] - z / 2],
+    );
+  }
   function spring(
     p: T.Object3D,
     r: number,
@@ -169,144 +198,117 @@ export function makeRevisionGripper(
     cover = group("cover-assembly"),
     spindle = group("spindle-assembly"),
     feed = group("feed-carriage");
-  ring(frame, 39, 12, -148, 7, dark, "robot-adapter");
-  ring(cover, 39, 37, -141, 119, alu, "housing");
-  // Front cut-outs are real gaps between beams, giving the optical path and jaws a clear exit.
-  for (const x of [-32, 32]) {
-    box(frame, [8, 16, 7], [x, 0, -19], alu, "front-bearing-support");
-    cyl(frame, 2.5, 112, [x, 0, -82], steel, "feed-guide");
-    box(frame, [8, 12, 14], [x, 0, -126], teal, "feed-motor");
-    cyl(frame, 1.6, 100, [x, 8, -70], steel, "feed-screw");
-  }
-  for (const y of [-25, 25])
-    box(frame, [50, 6, 6], [0, y, -138], alu, "rear-cross-member");
-  ring(frame, 17.5, 15.3, -23, 7, dark, "nose-bearing");
-  ring(frame, 18.5, 15.3, -26, 3, alu, "nose-shell");
-  // Offset motor leaves the bit axis and camera sight line open.
-  cyl(spindle, 9.5, 43, [-23, -10, -86], teal, "spindle-motor");
-  cyl(spindle, 9.5, 13, [-23, -10, -58], dark, "spindle-gearhead");
-  box(spindle, [34, 6, 6], [-11.5, -10, -52], alu, "drive-bearing-bridge");
-  const pulley = group("belt-transmission", spindle);
-  ring(pulley, 8, 4, -52, 5, orange, "spindle-pulley");
-  const motorPulley = ring(pulley, 6, 2, -52, 5, orange, "motor-pulley");
-  motorPulley.position.x = -23;
-  motorPulley.position.y = -10;
-  for (const y of [-7, 7])
-    rod(
-      pulley,
-      new T.Vector3(0, y, -49),
-      new T.Vector3(-23, -10 + y * 0.75, -49),
-      0.8,
-      black,
-      "timing-belt",
-    );
-  const driver = group("driver-rotor", spindle);
-  ring(driver, 5.5, 3.5, -96, 62, steel, "hollow-splined-shaft");
-  ring(spindle, 9, 5.7, -76, 5, orange, "rear-spindle-bearing");
-  ring(spindle, 9, 5.7, -42, 6, orange, "front-spindle-bearing");
-  box(frame, [12, 6, 12], [10, -5, -77], dark, "bearing-guide-key");
-  let axialSpring: T.Mesh | undefined;
-  if (compliant || damped) {
-    ring(frame, 12, 6, -129, 4, dark, "axial-fixed-seat");
-    axialSpring = spring(frame, 8, 24, [0, 0, -125], "axial-spring");
-    ring(spindle, 12, 6, -101, 4, alu, "axial-moving-seat");
-    for (const x of [-12, 12])
-      cyl(frame, 1.4, 34, [x, 0, -115], steel, "axial-guide");
-    box(frame, [4, 6, 6], [14, 0, -98], orange, "axial-hard-stop");
-  }
-  if (compliant) {
-    ring(frame, 13, 6, -133, 3, green, "axial-load-cell");
-    box(frame, [5, 6, 14], [17, 0, -117], green, "axial-displacement-sensor");
-    box(spindle, [2, 4, 4], [14, 0, -103], steel, "sensor-target");
-  }
-  const damper = group("damper-assembly", frame);
-  let damperRod: T.Mesh | undefined;
-  if (damped) {
-    cyl(damper, 5, 24, [23, 0, -119], teal, "axial-damper-cylinder");
-    damperRod = cyl(damper, 1.8, 19, [23, 0, -101], steel, "axial-damper-rod");
-    box(spindle, [13, 6, 5], [18, 0, -94], alu, "damper-link");
-  }
-  const holder = group("head-holder", spindle);
-  ring(holder, 15, 12, -20, 5, orange, "holder-rotor-ring");
-  ring(spindle, 16.8, 15.2, -20, 5, steel, "holder-bearing");
-  ring(holder, 14.5, 12, -25, 3, steel, "holder-spring-seat");
-  const brake = box(frame, [5, 7, 7], [17, 0, -22], green, "holder-brake");
   const h = spec.headHeight * 1000,
     r = spec.diameter * 500,
     w = spec.headWidth * 1000;
-  const retainers: T.Group[] = [];
-  for (let k = 0; k < 3; k++) {
-    const sector = group(`retainer-sector-${k}`, holder);
-    sector.rotation.z = (k * 2 * Math.PI) / 3;
-    const jaw = group(`head-retainer-${k}`, sector);
-    const offset = head === "hex" ? 5 : 0;
-    box(jaw, [2.2, 3.4, 14], [offset, 0, -8], dark, "retainer-flexure");
-    if (offset)
-      box(jaw, [5, 3.4, 1.2], [2.5, 0, -0.65], dark, "retainer-radial-bridge");
-    box(
-      jaw,
-      [2.5, 3.4, head === "hex" ? 1.2 : Math.max(2, h - 1)],
-      [0, 0, head === "hex" ? -0.65 : -h / 2],
-      orange,
-      "head-contact",
-    );
-    if (improved)
-      box(
-        jaw,
-        [Math.max(1, w / 2 - r), 3.4, 1],
-        [-(w / 2 - r) / 2, 0, 0.5],
+  const mat = { alu, dark, steel, teal, orange, green, black };
+  ring(frame, B.radius, 12, -B.length, 7, dark, "robot-adapter");
+  ring(
+    cover,
+    B.radius,
+    B.radius - 2,
+    -B.length + 7,
+    B.length - 67,
+    alu,
+    "housing",
+  );
+  const portStart = T.MathUtils.degToRad(115),
+    portEnd = T.MathUtils.degToRad(425);
+  const frontShell = new T.Shape();
+  frontShell.absarc(0, 0, B.radius, portStart, portEnd, false);
+  frontShell.lineTo(
+    (B.radius - 2) * Math.cos(portEnd),
+    (B.radius - 2) * Math.sin(portEnd),
+  );
+  frontShell.absarc(0, 0, B.radius - 2, portEnd, portStart, true);
+  frontShell.closePath();
+  mesh(
+    cover,
+    new T.ExtrudeGeometry(frontShell, {
+      depth: 38,
+      bevelEnabled: false,
+      curveSegments: 48,
+    }),
+    alu,
+    "housing-optical-port",
+    [0, 0, -60],
+  );
+  const grip = makeRevisionGrip(frame, feed, spec, id, mat);
+  const { shoes } = grip;
+  const headDrive = makeRevisionHeadDrive({
+    frame,
+    spindle,
+    spec,
+    head,
+    improved,
+    mat,
+  });
+  const { holder, driver, bit, socket } = headDrive;
+  let axialSpring: T.Mesh | undefined;
+  let damperRod: T.Mesh | undefined;
+  const damper = group("damper-assembly", frame);
+  if (compliant || damped) {
+    ring(frame, 16, 6, -203, 4, green, "axial-load-cell");
+    ring(frame, 16, 6, -199, 4, dark, "axial-fixed-seat");
+    axialSpring = spring(frame, 8, 22.9, [0, 0, -194.45], "axial-spring");
+    ring(spindle, 24, 6, -171, 5, alu, "axial-moving-seat");
+    for (const x of [-29, 29]) {
+      cyl(frame, 1.6, 43, [x, 0, -181.5], steel, "axial-guide");
+      const bush = ring(
+        spindle,
+        3,
+        1.65,
+        -177,
+        10,
         orange,
-        "under-head-retainer",
+        "axial-guide-bushing",
       );
-    retainers.push(jaw);
-  }
-  const socket = group("socket-cartridge", driver);
-  if (head === "hex") {
-    const s = new T.Shape();
-    s.absarc(0, 0, w / Math.sqrt(3) + 2.2, 0, Math.PI * 2, false);
-    const hole = new T.Path();
-    for (let k = 0; k < 6; k++) {
-      const a = Math.PI / 6 - (k * Math.PI) / 3,
-        rr = w / Math.sqrt(3) + 0.16;
-      if (k === 0) hole.moveTo(rr * Math.cos(a), rr * Math.sin(a));
-      else hole.lineTo(rr * Math.cos(a), rr * Math.sin(a));
+      bush.position.x = x;
+      boredBox(
+        spindle,
+        [12, 8, 5],
+        [Math.sign(x) * 25, 0, -168.5],
+        [[Math.sign(x) * 4, 0, 1.65]],
+        alu,
+        "axial-seat-guide-link",
+      );
+      const rest = ring(frame, 4, 1.65, -166, 2, dark, "axial-rest-stop");
+      rest.position.x = x;
+      const stop = ring(frame, 4, 1.65, -185, 2, orange, "axial-hard-stop");
+      stop.position.x = x;
     }
-    hole.closePath();
-    s.holes.push(hole);
-    mesh(
-      socket,
-      new T.ExtrudeGeometry(s, { depth: h - 1.6, bevelEnabled: false }),
-      improved ? orange : steel,
-      "hex-form-socket",
-      [0, 0, -h],
-    );
-    ring(socket, w / Math.sqrt(3) + 2.2, 4, -h - 3, 3, steel, "socket-back");
-    ring(socket, 5.5, 3.5, -35, 35 - h - 3, steel, "socket-shank");
+    box(frame, [5, 6, 14], [34, -10, -184], green, "axial-displacement-sensor");
+    box(spindle, [2, 4, 4], [30, -10, -171], steel, "sensor-target");
+    box(frame, [24, 6, 5], [25, -10, -200.5], alu, "sensor-frame-mount");
+    box(frame, [4, 6, 14], [34, -10, -191], alu, "sensor-frame-post");
+    box(spindle, [10, 4, 3], [26, -10, -171], alu, "sensor-target-arm");
+  } else {
+    for (const x of [-12, 12])
+      cyl(frame, 2.5, 37, [x, 0, -184.5], alu, "rigid-spindle-mount");
   }
-  const bit = group("bit-cartridge", driver);
-  if (head !== "hex") {
-    cyl(bit, 2.2, 33, [0, 0, -h - 16.5], steel, "bit-shaft");
-    const tipLength = 1.4,
-      arm = Math.min(w * 0.27, 3.8),
-      thick = Math.max(0.65, r * 0.18);
-    box(
-      bit,
-      [arm * 2, thick, tipLength],
-      [0, 0, -h + tipLength / 2],
-      steel,
-      head === "slotted" ? "slotted-bit" : "phillips-bit",
+  if (damped) {
+    const barrel = ring(damper, 5, 2, -201, 20, teal, "axial-damper-cylinder");
+    barrel.position.x = 42;
+    const cap = ring(damper, 5, 1.85, -181, 2, dark, "damper-rod-guide");
+    cap.position.x = 42;
+    damperRod = cyl(damper, 1.8, 30, [42, 0, -186], steel, "axial-damper-rod");
+    boredBox(
+      frame,
+      [32, 8, 5],
+      [29, 0, -200.5],
+      [[13, 0, 2]],
+      alu,
+      "damper-frame-mount",
     );
-    if (head === "phillips")
-      box(
-        bit,
-        [thick, arm * 2, tipLength],
-        [0, 0, -h + tipLength / 2],
-        steel,
-        "phillips-cross-bit",
-      );
-    spring(bit, 4, 12, [0, 0, -69], "bit-seating-spring");
-    ring(bit, 6, 2.5, -72, 3, green, "bit-axis-load-cell");
-    box(spindle, [3, 5, 16], [8, 0, -69], green, "relative-bit-depth-sensor");
+    boredBox(
+      spindle,
+      [24, 6, 4],
+      [33, 0, -169],
+      [[-4, 0, 1.65]],
+      alu,
+      "damper-link",
+    );
+    cyl(spindle, 1.95, 2, [42, 0, -198], orange, "damper-piston");
   }
   const cameraModule = group("vision-module");
   const sight = group("optical-path", cameraModule);
@@ -314,15 +316,15 @@ export function makeRevisionGripper(
     const camera = box(
       cameraModule,
       [11, 13, 12],
-      [0, 20, -38],
+      [0, 80, -38],
       teal,
       "camera",
     );
     camera.lookAt(new T.Vector3(0, 0, -h));
     rod(
       cameraModule,
-      new T.Vector3(0, 26, -44),
-      new T.Vector3(0, 37, -55),
+      new T.Vector3(0, 82, -203),
+      new T.Vector3(0, 82, -38),
       2,
       alu,
       "camera-bracket",
@@ -331,135 +333,37 @@ export function makeRevisionGripper(
       cameraModule,
       4,
       4,
-      [0, 14, -32],
+      [0, 72, -32],
       black,
       "camera-lens",
       "y",
     );
     lens.quaternion.setFromUnitVectors(
       new T.Vector3(0, 1, 0),
-      new T.Vector3(0, -14, 32 - h).normalize(),
+      new T.Vector3(0, -72, 32 - h).normalize(),
     );
-    ring(cameraModule, 16, 14, -10, 1.5, green, "diffuse-ring-light");
-    const pts = [new T.Vector3(0, 14, -32), new T.Vector3(0, 0, -h)];
+    box(cameraModule, [8, 24, 5], [0, 74, -205.5], alu, "camera-adapter-mount");
+    const light = ring(
+      cameraModule,
+      6,
+      3.8,
+      0,
+      1.5,
+      green,
+      "diffuse-ring-light",
+    );
+    light.position.copy(lens.position);
+    light.quaternion.setFromUnitVectors(
+      new T.Vector3(0, 0, 1),
+      new T.Vector3(0, -72, 32 - h).normalize(),
+    );
+    const pts = [new T.Vector3(0, 72, -32), new T.Vector3(0, 0, -h)];
     const line = new T.Line(
       new T.BufferGeometry().setFromPoints(pts),
       new T.LineDashedMaterial({ color: "#288c88", dashSize: 2, gapSize: 1 }),
     );
     line.computeLineDistances();
     sight.add(line);
-  }
-  const shoes: { slide: T.Group; pivot: T.Group; pin: T.Mesh; side: number }[] =
-    [];
-  for (const side of [-1, 1]) {
-    const suffix = side < 0 ? "left" : "right",
-      slide = group(`jaw-slide-${suffix}`, feed);
-    box(slide, [7, 10, 6], [0, 0, -29], dark, "grip-slider");
-    box(slide, [9, 10, 9], [0, -10, -29], teal, "grip-actuator");
-    // A bent blade with a true perpendicular foot, leaving the central drive axis free.
-    box(
-      slide,
-      [capture ? 2.8 : 1.2, 5, 31],
-      [0, 0, -12.5],
-      steel,
-      gravity ? "L-finger-stem" : "finger-stem",
-    );
-    box(
-      slide,
-      [10.5, 5, 2.8],
-      [-side * 4.6, 0, 2],
-      steel,
-      gravity ? "L-finger-foot" : "finger-foot",
-    );
-    const pivot = group(
-      capture ? `rotating-shoe-${suffix}` : `contact-pad-${suffix}`,
-      slide,
-    );
-    pivot.position.set(-side * 9.5, 0, B.grasp);
-    cyl(slide, 2.7, 3.5, [-side * 7, 0, B.grasp], orange, "pivot-bearing", "x");
-    if (capture) {
-      box(pivot, [2, 3, 3], [0, 0, 0], teal, "shoe-centre");
-      for (const a of [-28, 28]) {
-        const angle = (side < 0 ? Math.PI : 0) + T.MathUtils.degToRad(a);
-        const pad = box(
-          pivot,
-          [1.1, 2.8, 4],
-          [
-            (r + 0.55) * Math.cos(angle) - side * (r + 2),
-            (r + 0.55) * Math.sin(angle),
-            0,
-          ],
-          teal,
-          "U-contact-face",
-        );
-        pad.rotation.z = angle;
-      }
-      // The lip travels with the captured bolt, supporting its underside through righting.
-      box(
-        pivot,
-        [1.8, 4.6, 0.8],
-        [-side * 0.8, 0, -2.05],
-        teal,
-        "shoe-head-lip",
-      );
-    } else cyl(pivot, 1.5, 4, [0, 0, 0], black, "flat-contact-pad", "x");
-    const pin = cyl(
-      slide,
-      0.8,
-      5,
-      [-side * 5, 0, B.grasp],
-      green,
-      `pivot-lock-${suffix}`,
-      "x",
-    );
-    shoes.push({ slide, pivot, pin, side });
-    if (capture) {
-      const cam = box(
-        frame,
-        [3, 8, 24],
-        [side * 26, 0, -25],
-        orange,
-        `reset-cam-${suffix}`,
-      );
-      cam.rotation.y = side * 0.35;
-      box(frame, [4, 5, 5], [side * 26, -7, -34], green, "shoe-home-sensor");
-      box(pivot, [2, 2, 5], [side * 2.3, 0, 1.5], steel, "cam-follower");
-    }
-  }
-  const correction = group("end-alignment-guide", feed);
-  if (gravity) {
-    for (const side of [-1, 1]) {
-      const face = box(
-        correction,
-        [3, 4, 9],
-        [side * (r + 4), 4, 7],
-        orange,
-        "vertical-correction-face",
-      );
-      face.rotation.x = -0.18;
-      box(
-        correction,
-        [3, 9, 3],
-        [side * (r + 4), 8, 2],
-        steel,
-        "vertical-hard-stop",
-      );
-    }
-    box(correction, [10, 6, 7], [0, 12, -3], teal, "alignment-guide-actuator");
-    box(
-      correction,
-      [2 * r + 11, 4, 3],
-      [0, 8, 2],
-      steel,
-      "alignment-guide-crossbar",
-    );
-  }
-  const thumb = group("thumb-assembly", feed);
-  let thumb1: T.Mesh | undefined, thumb2: T.Mesh | undefined;
-  if (!gravity) {
-    box(thumb, [8, 8, 12], [0, -24, -24], teal, "thumb-actuator");
-    thumb1 = cyl(thumb, 2.3, 20, [0, 0, 0], teal, "thumb-link", "y");
-    thumb2 = cyl(thumb, 1.8, 20, [0, 0, 0], teal, "thumb-distal", "y");
   }
   // Bolt uses a genuine recessed top, not a cross drawn on a solid head.
   const bolt = group("held-bolt");
@@ -563,7 +467,7 @@ export function makeRevisionGripper(
     {
       object: feed,
       offset: new T.Vector3(60, 0, 28),
-      label: gravity ? "ㄴ자 집게·회전 슈" : "파지 집게·보조 엄지",
+      label: gravity ? "ㄴ자 집게·회전 슈" : "파지 집게·회전 구동축",
     },
     {
       object: cameraModule,
@@ -647,65 +551,24 @@ export function makeRevisionGripper(
     time: number,
     mode: InspectionMode = "assembled",
     amount = 0.5,
+    boltMatrix?: T.Matrix4,
   ) {
     const p = revisionPose(time, spec, id, head),
       exp = mode === "exploded" ? T.MathUtils.clamp(amount, 0, 1) : 0;
     for (const m of modules) m.object.position.set(0, 0, 0);
-    feed.position.z = p.carriageZ;
-    correction.position.y =
-      10 * (1 - ramp(time, 12, 14)) + 10 * ramp(time, 15, 16);
+    grip.update(p);
     spindle.position.z = -p.compression;
-    if (axialSpring) axialSpring.scale.z = (24 - p.compression) / 24;
-    if (damperRod) damperRod.position.z = -101 - p.compression;
-    driver.rotation.z = p.bitAngle;
-    holder.rotation.z = HEAD_ANGLE + p.spin;
-    holder.position.z = -6 * ramp(time, 58, 59);
-    const engaged = p.clamp * (1 - p.retainOpen);
-    retainers.forEach((j) => (j.position.x = w / 2 + 1.2 + (1 - engaged) * 6));
-    brake.position.x = 17 + (p.brake ? 0 : 2.5);
-    bit.position.z = -18 * (1 - p.bitSeat);
-    socket.position.z = -10 * (1 - p.bitSeat);
-    for (const s of shoes) {
-      s.slide.position.x = s.side * (p.gap + 9.5);
-      s.pivot.rotation.x = p.shoeAngle;
-      s.pin.position.x = -s.side * (p.lock ? 5 : 2.5);
-    }
-    if (thumb1 && thumb2) {
-      const active = ramp(time, 7, 8) * (1 - ramp(time, 14, 16));
-      const base = new T.Vector3(0, -24, -18),
-        end = new T.Vector3(0, 0, spec.length * 1000 - 3).applyMatrix4(
-          revisionBoltMatrix({ ...p, spin: 0, feed: 1, compression: 0 }),
-        );
-      end.z += 4;
-      end.lerp(new T.Vector3(0, -24, -14), 1 - active);
-      const elbow = base
-        .clone()
-        .lerp(end, 0.5)
-        .add(new T.Vector3(0, -9, 0));
-      for (const [o, a, b] of [
-        [thumb1, base, elbow],
-        [thumb2, elbow, end],
-      ] as const) {
-        o.position.copy(a).lerp(b, 0.5);
-        o.scale.y = a.distanceTo(b) / 20;
-        o.quaternion.setFromUnitVectors(
-          new T.Vector3(0, 1, 0),
-          b.clone().sub(a).normalize(),
-        );
-      }
-    }
+    if (axialSpring) axialSpring.scale.z = (22.9 - p.compression) / 22.9;
+    if (damperRod) damperRod.position.z = -186 - p.compression;
+    headDrive.update(p);
     const bp = revisionPose(Math.min(time, 63), spec, id, head);
-    bolt.matrix.copy(revisionBoltMatrix(bp));
-    if (time > 63)
-      bolt.matrix.premultiply(
-        new T.Matrix4().makeTranslation(0, 0, 50 * ramp(time, 63, 67)),
-      );
+    bolt.matrix.copy(boltMatrix ?? revisionBoltMatrix(bp));
     bolt.matrix.premultiply(new T.Matrix4().makeTranslation(0, 0, 48 * exp));
     for (const m of modules)
       if (m.object !== bolt) m.object.position.addScaledVector(m.offset, exp);
     sight.visible = p.vision && mode === "assembled";
     root.updateMatrixWorld(true);
-    const cut = (T.MathUtils.clamp(amount, 0, 1) - 0.5) * 72;
+    const cut = (T.MathUtils.clamp(amount, 0, 1) - 0.5) * 2 * (B.radius + 20);
     sectionPlane
       .set(new T.Vector3(0, -1, 0), cut)
       .applyMatrix4(root.matrixWorld);
@@ -718,7 +581,7 @@ export function makeRevisionGripper(
     return p;
   }
   update(0);
-  return { root, update, labels, modules, head };
+  return { root, update, labels, modules, head, bolt };
 }
 
 export function makeRevisionWorkpiece(spec: BoltSpec) {

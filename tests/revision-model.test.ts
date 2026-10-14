@@ -10,7 +10,7 @@ test("gravity design removes the thumb and keeps both rotating retention shoes",
   const g = makeRevisionGripper("integrated", PRESETS[1], "hex");
   expect(g.root.getObjectByName("thumb-link")).toBeUndefined();
   expect(g.root.getObjectByName("rotating-shoe-left")).toBeDefined();
-  expect(g.root.getObjectByName("reset-cam-left")).toBeDefined();
+  expect(g.root.getObjectByName("shoe-reset-servo")).toBeDefined();
   expect(g.root.getObjectByName("pivot-lock-left")).toBeDefined();
 });
 test("explosion moves assemblies and restores their exact animated positions", () => {
@@ -145,5 +145,20 @@ test("each workpiece bore fits its bolt and supports even the round head", () =>
     expect(radius).toBeGreaterThanOrEqual(spec.diameter / 2);
     expect(radius).toBeLessThan(spec.diameter / 2 + 0.0001);
     expect(radius).toBeLessThan(spec.headWidth / 2);
+  }
+});
+
+test("section travel reaches both the feed drive and the external camera", () => {
+  const g = makeRevisionGripper("integrated", PRESETS[1], "hex");
+  for (const amount of [0, 1]) {
+    g.update(25, "section", amount);
+    const plane = ((g.root.getObjectByName("housing") as Mesh).material as any)
+      .clippingPlanes[0];
+    for (const name of ["feed-motor", "camera-lens"]) {
+      const distance = plane.distanceToPoint(
+        g.root.getObjectByName(name)!.getWorldPosition(new Vector3()),
+      );
+      expect(Math.sign(distance)).toBe(amount === 0 ? -1 : 1);
+    }
   }
 });
