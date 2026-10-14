@@ -382,6 +382,9 @@ main,
   flex-wrap: wrap;
   gap: 12px;
 }
+.patent-mobile {
+  display: none;
+}
 .titleblock {
   width: min(430px, 100%);
   border-collapse: collapse;
@@ -984,6 +987,12 @@ main,
   }
 }
 @media (max-width: 899px) {
+  .patent-mobile {
+    display: block;
+    flex-basis: 100%;
+    color: var(--teal);
+    font-size: 14px;
+  }
   body::before {
     background: radial-gradient(
       ellipse 80% 40% at 50% 34%,

@@ -14,8 +14,12 @@ test("R11 showcase scrolls through the cycle and mounts the FR3 cell", async ({
   await expect(page.locator("#stage-no")).toHaveText("09");
   await page.locator("#rail button").nth(6).click();
   await expect(page.locator("#stage-name")).toHaveText(/정지 인계/);
-  await expect(page.locator("#bars .row")).toHaveCount(5);
-  await expect(page.locator("#bars")).toContainText("−27.69%");
+  await expect(page.getByRole("link", { name: "유사 특허" })).toHaveAttribute(
+    "href",
+    "./patents.html",
+  );
+  await expect(page.locator("body")).not.toContainText("아직 확인하지 않은 것");
+  await expect(page.locator("body")).not.toContainText("R10");
   await page.locator("#cell").scrollIntoViewIfNeeded();
   await expect(page.locator("#cell-play")).toBeEnabled({ timeout: 60000 });
   await page.getByRole("button", { name: "M10 × 50" }).click();
@@ -33,4 +37,13 @@ test("R11 showcase scrolls through the cycle and mounts the FR3 cell", async ({
     })),
   ).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test("related patents link to source documents", async ({ page }) => {
+  await page.goto("/patents.html");
+  await expect(page.locator("article")).toHaveCount(3);
+  for (const id of ["KR102370259B1", "US8939487B2", "US11420299B2"])
+    await expect(
+      page.locator(`article:has-text("${id}") h2 a`),
+    ).toHaveAttribute("href", new RegExp(id));
 });

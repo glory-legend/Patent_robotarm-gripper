@@ -91,7 +91,7 @@ const PARTS: [anchor: string, prefix: string, name: string, text: string][] = [
     "spindle-motor-envelope",
     "spindle-motor-envelope",
     "체결 모터 공간",
-    "R10과 같은 크기로 남겨 둔 설치 공간입니다. 모터는 미선정입니다.",
+    "체결 구동부가 들어가는 공간입니다.",
   ],
 ];
 const partButtons = PARTS.map(([, , name, text], i) => {
@@ -148,51 +148,6 @@ const tag = document.createElement("p");
 tag.className = "tag";
 tags.append(tag);
 setStage(0, 0);
-const steps = [...document.querySelectorAll<HTMLElement>("#steps li")];
-function setSteps(p: number) {
-  let on = 0;
-  steps.forEach((s, k) => {
-    if (Number(s.dataset.at) <= p) on = k;
-  });
-  steps.forEach((s, k) => s.classList.toggle("on", k === on));
-}
-
-// Comparison bars (values from archive/R11/geometry-comparison.json and R11.md).
-const METRICS: [string, number, number, string][] = [
-  ["외접 원통 체적", 280773.5602, 255853.0729, "mm³"],
-  ["지정 구조 재료 체적", 57796.9271, 41794.8551, "mm³"],
-  ["알루미늄 환산 질량", 156.0517, 112.8461, "g"],
-  ["몸체 길이", 93, 89, "mm"],
-  ["수납 행정", 32, 29, "mm"],
-];
-const num = (v: number) =>
-  v.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
-const bars = $("#bars");
-for (const [name, a, b, unit] of METRICS) {
-  const row = document.createElement("div");
-  row.className = "row";
-  const pct = ((b - a) / a) * 100;
-  row.innerHTML = `<p class="name">${name}</p>
-    <div class="pair">
-      <div class="meter r10" style="--w:1"><i></i><span>${num(a)} ${unit}</span></div>
-      <div class="meter r11" style="--w:${(b / a).toFixed(4)}"><i></i><span>${num(b)} ${unit}</span></div>
-    </div>
-    <p class="delta">${pct.toFixed(2).replace("-", "−")}%</p>`;
-  bars.append(row);
-}
-// Bars rest at full length; they only grow in when they start below the fold.
-if (!reduced && bars.getBoundingClientRect().top > innerHeight) {
-  bars.classList.add("armed");
-  new IntersectionObserver(
-    ([e], o) => {
-      if (!e.isIntersecting) return;
-      bars.classList.remove("armed");
-      o.disconnect();
-    },
-    { threshold: 0.35 },
-  ).observe(bars);
-}
-
 // ---------- Stage
 const canvas = $<HTMLCanvasElement>("#stage");
 let renderer: T.WebGLRenderer | null = null;
@@ -260,17 +215,12 @@ const holder = new T.Group();
 holder.rotation.x = Math.PI / 2;
 scene.add(holder);
 const r11 = makeCompactGripper(SPEC, "r11");
-const r10 = makeCompactGripper(SPEC, "c2");
-holder.add(r11.root, r10.root);
+holder.add(r11.root);
 r11.update({ time: HERO_T }, SPEC);
-r10.update({ time: 0 }, SPEC);
-const f11 = finishes(),
-  f10 = finishes();
-const cable = realize(r11.root, f11, {
+const cable = realize(r11.root, finishes(), {
   ...DESIGNS.r11.body,
   nose: DESIGNS.r11.nose,
 })!;
-realize(r10.root, f10);
 const housing = r11.root.getObjectByName("structural-guide-housing") as T.Mesh;
 const housingMat = housing.material as T.Material;
 
@@ -420,7 +370,6 @@ const plate = new T.Group();
 }
 const r11Mats = materialsOf(r11.root);
 r11.root.add(boltMount, pile, plate);
-const r10Mats = materialsOf(r10.root);
 
 /** Bolt, pile and workpiece for robot-cycle time t, seen from the tool. */
 function placeProps(t: number, show: boolean) {
@@ -457,43 +406,6 @@ loadWrist(0.55)
     sceneChanged = true;
   })
   .catch((error) => console.warn("FR3 wrist unavailable", error));
-
-// R10 parts that R11 no longer has; each leaves in turn in the "R10 대비" chapter.
-const CUTS = [
-  { name: "cover-screw", at: 0.12, back: 0, out: 26 },
-  { name: "cover-sleeve", at: 0.2, back: 115, out: 0 },
-  { name: "tie-rod", at: 0.36, back: 0, out: 42 },
-  { name: "rear-bulkhead", at: 0.44, back: 70, out: 0 },
-  { name: "tweezer-spread-cam", at: 0.56, back: 0, out: 34 },
-].map((cut) => {
-  const glow = new T.MeshStandardMaterial({
-    color: "#4a80be",
-    emissive: "#2d5d96",
-    emissiveIntensity: 0.9,
-    metalness: 0.3,
-    roughness: 0.4,
-  });
-  const parts = piecesOf(r10.root, (c, name) =>
-    name === cut.name
-      ? new T.Vector3(c.x, c.y, 0).setLength(cut.out).setZ(-cut.back)
-      : null,
-  ).map((p) => ({ ...p, original: p.mesh.material as T.Material }));
-  return { ...cut, glow, parts };
-});
-function cutAway(p: number, r10Fade: number) {
-  for (const cut of CUTS) {
-    const q = clamp01((p - cut.at) / 0.16);
-    const gone = 1 - clamp01((q - 0.5) / 0.5);
-    fade(cut.glow, gone * r10Fade);
-    for (const part of cut.parts) {
-      part.mesh.material = q > 0 ? cut.glow : part.original;
-      part.mesh.visible = gone > 0.01;
-      part.mesh.position
-        .copy(part.base)
-        .addScaledVector(part.off, ease((q - 0.2) / 0.8));
-    }
-  }
-}
 
 // ---------- Drawing layer
 const svg = $<SVGSVGElement>("#annot");
@@ -607,8 +519,6 @@ function bodyDims(cls: string, body: { width: number; length: number }) {
   };
 }
 const heroDims = bodyDims("r11 hero", DESIGNS.r11.body);
-const r10Dims = bodyDims("r10", DESIGNS.c2.body);
-const r11Dims = bodyDims("r11", DESIGNS.r11.body);
 
 // Item balloons for the exploded view, set in two columns like a drawing's callouts.
 const hot = new T.MeshStandardMaterial({
@@ -749,7 +659,6 @@ function drawLeader(show: number, stage: number) {
 type Shot = [az: number, el: number, dist: number, ty: number];
 const HERO: Shot = [0.62, 0.12, 0.56, -0.045];
 const ANATOMY: Shot = [0.75, 0.22, 0.62, -0.075];
-const DIET: Shot = [0.95, 0.18, 0.5, -0.058];
 const CYCLE: Shot[] = [
   [2.75, 0.16, 0.36, -0.1],
   [2.85, 0.1, 0.31, -0.104],
@@ -791,13 +700,9 @@ const state = {
   time: HERO_T,
   explode: reduced ? 0 : 1,
   xray: 1,
-  r11: 1,
-  r10: 0,
   hero: 0,
   balloons: 0,
   leader: 0,
-  dim10: 0,
-  dim11: 0,
   props: 1,
   wrist: 1,
   lift: 0,
@@ -813,15 +718,12 @@ const SCENE_KEYS: (keyof State)[] = [
   "time",
   "explode",
   "xray",
-  "r11",
-  "r10",
   "props",
   "wrist",
   "lift",
   "show",
 ];
 const t0 = performance.now();
-let diet = 0;
 let sceneChanged = false;
 const heroCopy = $(".hero-copy");
 
@@ -844,13 +746,9 @@ function target(now: number): State {
     ...state,
     explode: 0,
     xray: 1,
-    r11: 1,
-    r10: 0,
     hero: 0,
     balloons: 0,
     leader: 0,
-    dim10: 0,
-    dim11: 0,
     props: 1,
     wrist: 1,
     lift: 0.15,
@@ -882,17 +780,6 @@ function target(now: number): State {
     goal.leader = 1;
     rail.style.setProperty("--p", p.toFixed(4));
     setStage(i, time);
-  } else if (name === "diet") {
-    shot(DIET);
-    diet = p;
-    goal.time = 0;
-    goal.r10 = 1 - clamp01((p - 0.74) / 0.12);
-    goal.r11 = clamp01((p - 0.7) / 0.14);
-    goal.dim10 = clamp01(p / 0.08);
-    goal.dim11 = clamp01((p - 0.76) / 0.16);
-    goal.props = 0;
-    goal.wrist = 0;
-    setSteps(p);
   } else goal.show = 0;
   return goal;
 }
@@ -1161,12 +1048,7 @@ function renderStage(dt: number, moving: boolean) {
   const attached = state.wrist > 0.5;
   if (wrist) wrist.visible = attached;
   cable.visible = attached;
-  r11.root.visible = state.r11 > 0.01;
-  r10.root.visible = state.r10 > 0.01;
-  for (const m of r11Mats)
-    fade(m, state.r11 * (m === housingMat ? state.xray : 1));
-  for (const m of r10Mats) fade(m, state.r10);
-  if (state.r10 > 0.01) cutAway(diet, state.r10);
+  for (const m of r11Mats) fade(m, m === housingMat ? state.xray : 1);
 
   if (moving) {
     still = 0;
@@ -1180,8 +1062,6 @@ function renderStage(dt: number, moving: boolean) {
   } else r.render(scene, camera);
 
   heroDims(state.hero * state.show, 30);
-  r10Dims(state.dim10, 28);
-  r11Dims(state.dim11, 58);
   drawBalloons(narrow ? 0 : state.balloons);
   drawLeader(state.leader > 0.02 ? state.leader : 0, Math.max(0, stageIndex));
 }

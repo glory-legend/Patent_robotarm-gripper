@@ -10,14 +10,13 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 1000,
     // The shared showcase runs in a sandboxed frame: ship its small subset fonts inside the CSS.
-    assetsInlineLimit: (file: string) => (file.endsWith(".woff2") ? true : undefined),
+    assetsInlineLimit: (file: string) =>
+      file.endsWith(".woff2") ? true : undefined,
     rollupOptions: {
       input: {
         main: "index.html",
-        engineering: "engineering.html",
-        integrated: "integrated.html",
-        concept: "concept.html",
         r11: "r11.html",
+        patents: "patents.html",
       },
     },
   },
