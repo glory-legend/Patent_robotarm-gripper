@@ -1,34 +1,40 @@
-# R11 볼트 그리퍼
+# 볼트 그리퍼: A–F 개선안과 G 통합안
 
-![R11 그리퍼 내부 배치](archive/R11/screenshots/r11-internal.png)
+![G 통합안 단면](docs/images/G-integrated-section.png)
 
-_R11 모델 원본 캡처(2026-10-02). 외장을 투명하게 표시한 모습입니다._
+_2026-10-14 코드로 재현한 G 통합안 단면입니다. 실물 사진이나 구조 해석 결과가 아닙니다._
 
-얇은 핀셋으로 통 안의 볼트를 집습니다. 2관절 보조 엄지가 볼트를 세우면 몸체 안의 6조 척이 헤드를 넘겨받습니다. 로봇팔은 척에 볼트를 고정한 채 체결 위치로 이동합니다. 가는 노즈는 이웃 볼트 사이로 들어갈 수 있도록 설계했습니다.
+볼트를 집어 세우고 머리를 체결부에 넘긴 뒤 나사를 조이는 구조를 3D로 비교합니다. 공구와 FR3 손목을 중심으로 조립·단면·분해 보기, 단계 이동, 시점 회전과 확대를 제공합니다. M6×20, M8×35, M10×50을 선택할 수 있으며 F·G에서는 외육각·십자 PH·일자 헤드를 바꿀 수 있습니다.
 
-몸체 외형은 Ø60.5 × 89 mm입니다. 볼트를 14 mm 인입한 뒤 핀셋을 벌리고, 핀셋과 엄지를 29 mm 수납합니다. 체결 후 요크를 3 mm 더 움직여 척을 엽니다. M6×20, M8×35, M10×50 볼트의 동작을 3D로 볼 수 있습니다.
+[웹에서 보기](https://glory-legend.github.io/Patent_robotarm-gripper/) · [r11.html로 열기](https://glory-legend.github.io/Patent_robotarm-gripper/r11.html) · [기술 검토와 버전별 사진](docs/GRIPPER_REVIEW.md) · [유사 특허](https://glory-legend.github.io/Patent_robotarm-gripper/patents.html)
 
-| 파지                                                  | 세우기                                                               |
-| ----------------------------------------------------- | -------------------------------------------------------------------- |
-| ![핀셋 파지](archive/R11/screenshots/r11-pick.png)    | ![보조 엄지로 볼트 세우기](archive/R11/screenshots/r11-righting.png) |
-| 척에 인계                                             | 체결 동작                                                            |
-| ![척에 인계](archive/R11/screenshots/r11-handoff.png) | ![체결 동작](archive/R11/screenshots/r11-fastening.png)              |
+| 설계안             | 주요 구조                           | 주소 매개변수         |
+| ------------------ | ----------------------------------- | --------------------- |
+| A 헤드 고정형      | 규격별 육각 소켓, 머리 밑 유지턱    | `revision=head`       |
+| B 회전 파지형      | U형 회전 슈, 걸림턱, 잠금 핀        | `revision=retention`  |
+| C 축력 순응형      | 축방향 스프링, 가이드, 힘·변위 감지 | `revision=compliance` |
+| D 댐퍼형           | 스프링과 병렬 축방향 댐퍼           | `revision=damping`    |
+| E ㄴ자 중력 회전형 | 엄지 제거, 중력 회전, 복귀 캠       | `revision=gravity`    |
+| F 홈 인식·비트형   | 카메라, 독립 비트, 일자·십자 정렬   | `revision=drive`      |
+| G 종합형           | A–F 구조 통합                       | `revision=integrated` |
 
-_위 사진은 2026-10-02 R11 모델 원본 캡처입니다._
+두 웹 주소는 같은 일곱 설계안을 엽니다. [G 통합안의 PH 비트](https://glory-legend.github.io/Patent_robotarm-gripper/?revision=integrated&head=phillips)는 `?revision=integrated&head=phillips`로 공유합니다. 헤드 값은 `hex`, `phillips`, `slotted`이며 A–E는 외육각으로 표시합니다.
 
-## 웹에서 보기
+각 안은 Ø78×148 mm 개념 몸체와 분리된 머리 홀더·구동축을 공유합니다. E는 B의 회전 유지 구조를, F는 A의 머리 유지 구조를 포함합니다. 화면의 움직임은 설계 순서를 설명하며 실제 영상 인식·힘 제어·체결 성능은 검증하지 않았습니다.
 
-[그리퍼 설명](https://glory-legend.github.io/Patent_robotarm-gripper/r11.html)과 [시뮬레이터](https://glory-legend.github.io/Patent_robotarm-gripper/)는 브라우저에서 바로 볼 수 있습니다. [유사 특허](https://glory-legend.github.io/Patent_robotarm-gripper/patents.html)에서는 관련 특허 3건의 원문을 열 수 있습니다.
+## 로컬 실행
 
-로컬 실행에는 Node.js 22.12 이상이 필요합니다.
+Node.js 22.12 이상에서 실행합니다.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-로컬에서는 `http://127.0.0.1:5173/r11.html`을 열면 됩니다. 이 저장소에는 FR3 3D 자산이 포함되어 있습니다.
+`http://127.0.0.1:5173/` 또는 `/r11.html`을 엽니다. 소스 검사는 `npm run typecheck`, 단위 검사는 `npm test`, 브라우저 검사는 `npm run test:browser`, 배포용 빌드는 `npm run build`로 실행합니다.
 
-## 라이선스
+## 이전 모델과 라이선스
+
+R11의 당시 원본 사진은 [archive/R11/screenshots](archive/R11/screenshots)에 보존되어 있습니다. 현재 문서의 A–G 사진과 구분합니다.
 
 코드는 [Apache-2.0](LICENSE)이며, 사용한 FR3 자산과 의존성의 출처는 [NOTICE](NOTICE)에 적었습니다.

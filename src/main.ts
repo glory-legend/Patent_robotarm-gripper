@@ -1,353 +1,382 @@
-import "./style.css";
-import { DURATION, PRESETS, STAGES, sampleCycle } from "./timeline";
-import { Viewer, type ViewName } from "./viewer";
-import { VARIANTS, type Variant } from "./variants";
+import "./revision.css";
+import { DURATION, PRESETS } from "./timeline";
 import {
-  designOf,
-  stagesFor,
-  type DesignId,
-  DRAW_IN,
-  THUMB,
-  NOSE,
-  TWEEZER,
-  minPitch,
-  compactBoltWorld,
-  compactJoints,
-} from "./compact-kinematics";
-import { makeCompactGripper } from "./compact-model";
-const R09 = document.body.dataset.tool === "r09";
-const design = "r11" as DesignId;
-const D = designOf(design),
-  BODY = D.body,
-  STOW = D.stow;
-if (R09) document.title = `${D.label} · 볼트 빈피킹`;
-const stages = R09 ? stagesFor(design) : STAGES;
-const stageAt = (t: number) => {
-  const i = stages.findIndex((s) => t < s.end);
-  return i < 0 ? stages.length - 1 : i;
-};
-const r09Panel = `<section class="settings variant-settings"><h3>R11 그리퍼 구조</h3><strong>핀셋으로 볼트 몸통을 집고 보조 엄지로 세운 뒤, 척에 인계해 체결합니다.</strong><dl class="dimensions"><div><dt>몸체 외형</dt><dd>Ø${BODY.width}×${BODY.length} <span>mm</span></dd></div><div><dt>노즈</dt><dd>Ø${NOSE.radius * 2}×${D.nose} <span>mm</span></dd></div><div><dt>동작 단계</dt><dd>${stages.length} <span>단계</span></dd></div><div><dt>설계 볼트 간격</dt><dd>${PRESETS.map((p) => Math.ceil(minPitch(p))).join("/")} <span>mm</span></dd></div><div><dt>핀셋 끝</dt><dd>${TWEEZER.tipWidth * 2}×${TWEEZER.tipThick * 2} <span>mm</span></dd></div><div><dt>인입 / 수납</dt><dd>${DRAW_IN} / ${STOW} <span>mm</span></dd></div></dl><p class="field-note">간격은 M6/M8/M10 순서입니다. 체결 위치에는 가는 노즈가 접근합니다.</p></section>`;
-const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `
-<header class="topbar"><a class="brand" href="./" aria-label="동작 연구실 처음으로"><span class="brand-mark">◎</span><span>동작 연구실<small>ADAPTIVE HEAD / TAPERED FINGERS</small></span></a><div class="top-meta"><span class="status-dot"></span> FR3 · 7축 로봇팔<span class="concept-tag">${R09 ? "R11 · 빈피킹 시뮬레이션" : "개념 시연"}</span></div><a class="patent-link" href="./patents.html">유사 특허 ↗</a></header>
-<main class="workspace">
- <section class="stage-area" aria-label="3D 동작 시연">
-  <div class="scene-heading"><div><p class="eyebrow">BIN PICKING → FASTENING</p><h1>볼트, 집기에서 체결까지.</h1><p class="subtitle">${R09 ? `핀셋으로 집고 몸체 안에서 세워, 가는 노즈로 이웃 볼트 사이의 체결 위치에 접근합니다.` : "더 날카로운 팁. 본체 안에서 회전하는 두 가지 구조."}</p></div><span class="scene-id">ASSEMBLY<br><b>FR3—${R09 ? "R11" : "R06"}</b></span></div>
-  <div class="viewport" id="viewport">
-   <div class="view-tabs" aria-label="시점 선택">${[
-     ["whole", "전체"],
-     ["detail", "그리퍼 확대"],
-     ["front", "정면"],
-     ["side", "측면"],
-   ]
-     .map(
-       ([v, l]) =>
-         `<button disabled data-view="${v}" aria-pressed="${v === "whole"}">${l}</button>`,
-     )
-     .join("")}</div>
-   <div id="inset-label" class="inset-label" hidden><span>파지 인계 확대 <b>LIVE VIEW</b></span></div>
-   <div class="scene-legend"><span><i class="swatch blue"></i>주집게 2개</span><span><i class="swatch rod"></i>보조 엄지</span><span><i class="swatch orange"></i>헤드 척</span><span><i class="swatch gold"></i>대상 볼트</span></div>
-   <div class="camera-buttons" aria-label="카메라 조작"><button disabled id="rotate-left" aria-label="시점 왼쪽으로 회전">↶</button><button disabled id="rotate-right" aria-label="시점 오른쪽으로 회전">↷</button><button disabled id="zoom-in" aria-label="확대">＋</button><button disabled id="zoom-out" aria-label="축소">−</button></div>
-   <span class="orbit-hint">드래그로 회전 · 스크롤로 확대</span>
-   <div id="loading" class="loading" role="status"><span class="loader"></span><strong>로봇 모델을 준비하고 있습니다</strong><span id="load-progress">FR3 링크 0 / 8</span></div>
-  </div>
-  <section class="transport" aria-label="재생 제어">
-   <div class="transport-top"><div class="play-actions"><button class="play-button" id="play" disabled>▶ <span>재생</span></button><button class="icon-button" id="reset" aria-label="처음으로" disabled>↺</button><div class="time-readout"><output id="current-time">00.0</output><span>/ ${DURATION.toFixed(1)} s</span></div></div><div class="speed-control"><label for="speed">재생 속도</label><select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></div></div>
-   <label class="sr-only" for="timeline">동작 시간</label><input id="timeline" type="range" min="0" max="${DURATION}" step="0.01" value="0" disabled/>
-   <div class="phase-track" aria-label="동작 단계" style="--phases:${stages.length}">${stages.map((s, i) => `<button class="phase" data-stage="${i}" title="${s.name}" disabled><span>${String(i + 1).padStart(2, "0")}</span>${s.short}</button>`).join("")}</div>
-  </section>
- </section>
- <aside class="sidebar" aria-label="동작 설명과 보기 설정">
-  ${R09 ? r09Panel : `<section class="settings variant-settings"><h3>설계안 비교</h3><div class="variant-tabs" role="group" aria-label="그리퍼 설계안"><button id="variant-a" data-variant="a" aria-pressed="true">A · 분리 수납형</button><button id="variant-b" data-variant="b" aria-pressed="false">B · 통합 구조</button></div><strong id="variant-structure">${VARIANTS.a.structure}</strong><p id="variant-motion" class="field-note">${VARIANTS.a.motion}</p><p id="variant-tradeoff" class="field-note">${VARIANTS.a.tradeoff}</p><button id="compare-handoff" class="compare-jump">인계·수납 단계 비교 →</button><button id="compare-drive" class="compare-jump">내부 회전 비교 →</button></section>`}
-  <section class="explanation"><div class="section-kicker"><span>동작 해설</span><output id="step-count">01 / ${stages.length}</output></div><h2 id="phase-title">볼트 접근</h2><p id="phase-description">${stages[0].text}</p><div class="active-part"><span>현재 동작 부품</span><strong id="active-part">${stages[0].part}</strong></div><p class="grip-state" id="grip-state" aria-live="off"></p><div class="phase-nav"><button id="prev" disabled>← 이전 단계</button><button id="next" disabled>다음 단계 →</button></div></section>
-  <section class="settings"><h3>대상 볼트</h3><label class="sr-only" for="bolt">볼트 규격</label><select id="bolt">${PRESETS.map((s) => `<option value="${s.id}" ${s.id === "m8" ? "selected" : ""}>${s.label}</option>`).join("")}</select><p class="field-note">M6~M10 규격을 선택해 동작을 볼 수 있습니다.</p><dl class="dimensions"><div><dt>몸통 지름</dt><dd id="bolt-diameter">8 <span>mm</span></dd></div><div><dt>몸통 길이</dt><dd id="bolt-length">35 <span>mm</span></dd></div></dl></section>
-  <section class="settings view-settings"><h3>내부 살펴보기</h3><label class="toggle-row"><span>외장 투명하게</span><input type="checkbox" id="transparent"/><span class="switch" aria-hidden="true"></span></label><label class="toggle-row"><span>부품 이름표 <small>확대 시</small></span><input type="checkbox" id="labels" checked/><span class="switch" aria-hidden="true"></span></label><label class="toggle-row"><span>확대창 표시</span><input type="checkbox" id="inset" checked/><span class="switch" aria-hidden="true"></span></label><label class="toggle-row"><span>${design === "r11" && R09 ? "구조 외피 투시" : "부품 분해 보기"}</span><input type="checkbox" id="exploded"/><span class="switch" aria-hidden="true"></span></label><p id="explode-note" class="field-note">분해 보기에서는 재생이 일시정지됩니다.</p></section>
-  ${R09 ? `<div class="concept-note"><span>R11 · 파지에서 체결까지</span><p>14mm 인입한 볼트 헤드를 척에 고정하고, 핀셋을 벌려 29mm 수납합니다. 체결 후 요크를 3mm 더 움직여 척을 엽니다.</p><p>화면의 체결 동작은 3D 모델 시연입니다.</p></div>` : `<div class="concept-note"><span>R06 · 내부 회전 구조</span><p>팁을 뿌리 6×5mm에서 끝 1.6×2.4mm로 날렵하게 다듬었습니다. A는 내부 6조 척, B는 두 집게 카세트의 2단 접촉면으로 파지와 체결을 통합합니다. 체결부의 축방향 돌출은 두 안 모두 0mm입니다.</p><p>A는 소형 평행 모듈과 별도 척을, B는 자체 2조 회전 카세트를 사용합니다. 체결 스핀들 설치 공간은 공통입니다. B의 공통 캠·잠금은 구조 축소를 위한 설계안이며 실물 부품 수·질량·구동력은 미확정입니다.</p><p>척 구동·잠금과 팁은 자체 설계안입니다. 지그가 체결 반력을 받습니다. 위상이 맞은 육각 헤드를 전제로 하며, 실제 마찰·잠금 강도·토크와 무더기 충돌은 검증하지 않은 동작 모델입니다.</p><a href="./design-notes.md" target="_blank" rel="noopener">설계 근거·가정·검증 범위 ↗</a><a href="https://www.zimmer-group.com/en-us/products/components/handling-technology/2-jaw-parallel-grippers/series-gep2000" target="_blank" rel="noopener">기준 파지 모듈 ↗</a><a href="https://kolver.com/en/products/ca-series" target="_blank" rel="noopener">기준 체결 스핀들 ↗</a><a href="./fr3/NOTICE" target="_blank" rel="noopener">FR3 모델 출처 ↗</a></div>`}
- </aside>
-</main>
-<footer class="footer"><span><i class="status-dot"></i><span id="app-status" role="status">모델 불러오는 중</span></span><span>IN-HAND ALIGNMENT · VARIABLE HEAD CHUCK</span></footer>`;
+  REVISIONS,
+  HEADS,
+  REVISION_STAGES,
+  getRevision,
+  revisionStageText,
+  type HeadType,
+} from "./revision-config";
+import { RevisionViewer } from "./revision-viewer";
+
+type Inspection = "assembled" | "section" | "exploded";
+const params = new URLSearchParams(location.search);
+let revision = getRevision(params.get("revision"));
+let head: HeadType =
+  HEADS.find((item) => item.id === params.get("head"))?.id ?? "hex";
+const supportsBits = () => ["drive", "integrated"].includes(revision.id);
+if (!supportsBits()) head = "hex";
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
-let viewer: Viewer | undefined,
-  time = 0,
-  playing = false,
-  ready = false,
-  failed = false,
-  animationId = 0,
-  last = performance.now(),
-  currentStage = -1;
-let variant: Variant = "a";
-const play = $<HTMLButtonElement>("play"),
-  timeline = $<HTMLInputElement>("timeline");
-function updateUI() {
-  const spec = PRESETS.find(
-    (p) => p.id === $<HTMLSelectElement>("bolt").value,
-  )!;
-  const s = sampleCycle(time, spec);
-  const stage = stageAt(time);
-  $("grip-state").textContent = R09
-    ? time < 5
-      ? "파지 준비 · 핀셋 끝만 앞으로"
-      : time < 14
-        ? "핀셋 파지 · 엄지로 세움"
-        : time < 20.5
-          ? "엄지 접기 · 인입 · 헤드 척 닫힘"
-          : time < 25
-            ? "헤드 유지 · 핀셋 벌려 수납"
-            : time < 61
-              ? `척과 볼트만 회전 · 피치 ${spec.pitch * 1000}mm`
-              : time < 63
-                ? `최종 체결 · 예시 목표 ${spec.exampleTorque}Nm (측정 아님)`
-                : "체결 완료 위치 · 재장전"
-    : s.time < 5
-      ? "파지 준비"
-      : s.time < 14
-        ? "몸통 유지 · 회전 패드와 엄지로 세움"
-        : s.time < 16
-          ? "몸통 파지 유지 · 헤드 척 닫힘"
-          : s.time < 23
-            ? "헤드 유지 · 몸통 팁 수납"
-            : s.time < 61
-              ? `${variant.toUpperCase()} · 본체 내부 회전 · 피치 ${spec.pitch * 1000}mm`
-              : s.time < 63
-                ? "척 회전 · 볼트 하강"
-                : "체결 완료 위치 · 헤드 해제";
-  timeline.value = String(time);
-  timeline.style.setProperty("--progress", `${(time / DURATION) * 100}%`);
-  $("current-time").textContent = time.toFixed(1).padStart(4, "0");
-  play.innerHTML = playing ? "Ⅱ <span>일시정지</span>" : "▶ <span>재생</span>";
-  play.setAttribute("aria-label", playing ? "일시정지" : "재생");
-  if (stage !== currentStage) {
-    currentStage = stage;
-    const phase = stages[stage];
-    $("phase-title").textContent = phase.name;
-    $("phase-description").textContent = phase.text;
-    $("active-part").textContent = phase.part;
-    $("step-count").textContent =
-      `${String(stage + 1).padStart(2, "0")} / ${stages.length}`;
-    document
-      .querySelectorAll<HTMLButtonElement>("[data-stage]")
-      .forEach((b, i) => {
-        b.classList.toggle("active", i === stage);
-        b.classList.toggle("past", i < stage);
-        if (i === stage) b.setAttribute("aria-current", "step");
-        else b.removeAttribute("aria-current");
-      });
-  }
-  $<HTMLButtonElement>("prev").disabled = !ready || stage === 0;
-  $<HTMLButtonElement>("next").disabled = !ready || stage === stages.length - 1;
-  $("app-status").textContent = failed
-    ? "3D 장면을 불러오지 못했습니다"
+const app = document.querySelector<HTMLDivElement>("#app")!;
+
+app.innerHTML = `
+<a class="skip-link" href="#main">본문으로 건너뛰기</a>
+<header class="topbar">
+  <a class="brand" href="./" aria-label="볼트 그리퍼 처음으로"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="m16 3 11 6.5v13L16 29 5 22.5v-13Z"/><circle cx="16" cy="16" r="5"/><path d="M16 3v8m0 10v8"/></svg><span>볼트 그리퍼<small>구조와 동작</small></span></a>
+  <nav aria-label="페이지 목차"><a href="#explanation">설계 설명</a><a href="./patents.html">유사 특허 ↗</a></nav>
+</header>
+<main id="main" class="workspace" tabindex="-1">
+  <div class="model-column">
+    <section class="model-sheet" aria-labelledby="model-title">
+      <div class="scene-heading"><div><p class="eyebrow">집기 · 정렬 · 인계 · 체결</p><h1 id="model-title">${revision.title}</h1><p id="model-summary">${revision.summary}</p></div><div class="drawing-mark" aria-label="선택한 설계안"><span>설계안</span><strong id="revision-code">${revision.code}</strong></div></div>
+      <div id="viewport" class="viewport" aria-label="그리퍼 3D 모델">
+        <div class="view-controls" role="group" aria-label="시점 선택"><button data-view="perspective" aria-pressed="true" disabled>입체</button><button data-view="front" aria-pressed="false" disabled>정면</button><button data-view="side" aria-pressed="false" disabled>측면</button></div>
+        <div class="camera-controls" role="group" aria-label="카메라 조작"><button id="rotate-left" aria-label="시점 왼쪽으로 회전" title="시점 왼쪽으로 회전" disabled>↶</button><button id="rotate-right" aria-label="시점 오른쪽으로 회전" title="시점 오른쪽으로 회전" disabled>↷</button><button id="zoom-in" aria-label="확대" title="확대" disabled>＋</button><button id="zoom-out" aria-label="축소" title="축소" disabled>−</button></div>
+        <div id="loading" class="loading" role="status"><span class="loader" aria-hidden="true"></span><strong id="loading-title">3D 모델을 준비하고 있습니다</strong><p id="loading-text">잠시 후 구조와 동작을 살펴볼 수 있습니다.</p><button id="retry" hidden>다시 불러오기</button></div>
+        <p class="model-caption">구조·동작 개념 모델</p><span class="orbit-hint">드래그로 회전 · 스크롤로 확대</span>
+      </div>
+      <div class="inspection-bar">
+        <div class="inspection-controls" role="group" aria-label="구조 보기"><button data-inspection="assembled" aria-pressed="true" disabled>조립</button><button data-inspection="section" aria-pressed="false" disabled>단면</button><button data-inspection="exploded" aria-pressed="false" disabled>분해</button></div>
+        <div id="inspection-range" class="inspection-range" hidden><label id="inspection-label" for="inspection-amount">단면 위치</label><input id="inspection-amount" type="range" min="0" max="1" step="0.01" value="0.5" disabled><output id="inspection-value" for="inspection-amount" aria-live="off">50%</output></div>
+        <p id="inspection-note">단면과 분해 보기로 내부 구조를 살펴보세요.</p>
+      </div>
+    </section>
+    <section class="transport" aria-label="동작 재생">
+      <div class="transport-top"><div class="play-actions"><button id="play" class="primary" disabled>▶ 재생</button><button id="reset" aria-label="처음으로" title="처음으로" disabled>↺</button><div class="time-readout"><output id="current-time" for="timeline" aria-live="off">0.0</output><span>/ ${DURATION}초</span></div></div><label class="speed-control" for="speed">속도<select id="speed" disabled><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label></div>
+      <label class="sr-only" for="timeline">동작 시간</label><input id="timeline" type="range" min="0" max="${DURATION}" step="0.1" value="0" disabled>
+      <div class="phase-track" aria-label="동작 단계">${REVISION_STAGES.map((stage, index) => `<button data-stage="${index}" title="${stage.name}" disabled><span>${String(index + 1).padStart(2, "0")}</span>${stage.short}</button>`).join("")}</div>
+      <div class="phase-explanation"><div class="phase-heading"><span id="step-count">01 / ${REVISION_STAGES.length}</span><h2 id="phase-title">${REVISION_STAGES[0].name}</h2><div class="phase-nav"><button id="prev" aria-label="이전 단계" title="이전 단계" disabled>←</button><button id="next" aria-label="다음 단계" title="다음 단계" disabled>→</button></div></div><p id="phase-description"></p></div>
+    </section>
+  </div>
+  <aside class="sidebar" aria-label="설계안 선택과 설명">
+    <section class="revision-section"><div class="section-heading"><h2>설계안 비교</h2><span>6개 개선안 + 통합안</span></div><div class="revision-list" role="group" aria-label="그리퍼 설계안">${REVISIONS.map((item) => `<button data-revision="${item.id}" aria-pressed="${item.id === revision.id}"><span class="revision-letter">${item.code}</span><span>${item.label}</span><span class="selection-mark" aria-hidden="true">↗</span></button>`).join("")}</div></section>
+    <section id="explanation" class="explanation" aria-labelledby="detail-title" tabindex="-1"><p class="eyebrow">선택한 구조</p><h2 id="detail-title">${revision.label}</h2><ul id="revision-details"></ul><div id="revision-features" class="feature-list" aria-label="적용 구조"></div></section>
+    <section class="bolt-section" aria-labelledby="bolt-heading"><h2 id="bolt-heading">대상 볼트</h2><div class="bolt-fields"><label for="bolt">규격<select id="bolt" disabled>${PRESETS.map((spec) => `<option value="${spec.id}" ${spec.id === "m8" ? "selected" : ""}>${spec.label}</option>`).join("")}</select></label><label for="head">헤드<select id="head" aria-describedby="head-note" disabled>${HEADS.map((item) => `<option value="${item.id}">${item.label}</option>`).join("")}</select></label></div><p id="head-note" class="field-note"></p></section>
+    <details class="sources"><summary>구조와 설계 근거</summary><ul id="revision-sources"></ul><a href="./patents.html">관련 특허 살펴보기 ↗</a><p><a href="https://github.com/glory-legend/Patent_robotarm-gripper/blob/main/docs/GRIPPER_REVIEW.md" target="_blank" rel="noopener noreferrer">그리퍼 설계 검토 문서 ↗</a></p></details>
+  </aside>
+</main>
+<footer class="footer"><span id="app-status" role="status">모델 불러오는 중</span><span>볼트 빈피킹 · 헤드 체결</span></footer>`;
+
+let viewer: RevisionViewer | undefined;
+let time = 0;
+let playing = false;
+let ready = false;
+let failed = false;
+let inspection: Inspection = "assembled";
+let amount = 0.5;
+let currentStage = -1;
+let animationId = 0;
+let last = performance.now();
+const play = $<HTMLButtonElement>("play");
+const timeline = $<HTMLInputElement>("timeline");
+const headSelect = $<HTMLSelectElement>("head");
+const inspectionSlider = $<HTMLInputElement>("inspection-amount");
+const stageAt = () => {
+  const index = REVISION_STAGES.findIndex((stage) => time < stage.end);
+  return index < 0 ? REVISION_STAGES.length - 1 : index;
+};
+
+function syncUrl() {
+  const url = new URL(location.href);
+  url.searchParams.set("revision", revision.id);
+  url.searchParams.set("head", head);
+  history.replaceState(null, "", url);
+}
+function updateStatus() {
+  const status = failed
+    ? "3D 모델을 불러오지 못했습니다"
     : !ready
       ? "모델 불러오는 중"
       : playing
         ? "동작 재생 중"
-        : s.finished
-          ? "사이클 완료 · 처음으로 돌아가 다시 재생할 수 있습니다"
-          : "일시정지 · 장면을 자유롭게 살펴보세요";
+        : inspection !== "assembled"
+          ? `${inspection === "section" ? "단면" : "분해"} 보기 · 일시정지`
+          : time >= DURATION
+            ? "동작 완료"
+            : "일시정지";
+  if ($("app-status").textContent !== status)
+    $("app-status").textContent = status;
 }
-function seek(t: number) {
-  time = Math.max(0, Math.min(DURATION, t));
-  viewer?.update(time);
-  updateUI();
+function updateTimeline(force = false) {
+  timeline.value = String(time);
+  timeline.style.setProperty("--progress", `${(time / DURATION) * 100}%`);
+  $("current-time").textContent = time.toFixed(1);
+  play.textContent = playing ? "Ⅱ 일시정지" : "▶ 재생";
+  play.setAttribute("aria-label", playing ? "일시정지" : "재생");
+  const index = stageAt();
+  if (force || index !== currentStage) {
+    currentStage = index;
+    $("phase-title").textContent = REVISION_STAGES[index].name;
+    $("phase-description").textContent = revisionStageText(
+      revision.id,
+      time,
+      head,
+    );
+    $("step-count").textContent =
+      `${String(index + 1).padStart(2, "0")} / ${REVISION_STAGES.length}`;
+    document
+      .querySelectorAll<HTMLButtonElement>("[data-stage]")
+      .forEach((button, i) => {
+        button.classList.toggle("past", i < index);
+        if (i === index) button.setAttribute("aria-current", "step");
+        else button.removeAttribute("aria-current");
+      });
+  }
+  $<HTMLButtonElement>("prev").disabled = !ready || index === 0;
+  $<HTMLButtonElement>("next").disabled =
+    !ready || index === REVISION_STAGES.length - 1;
+  updateStatus();
+}
+function seek(value: number) {
+  time = Math.max(0, Math.min(DURATION, value));
+  viewer?.setTime(time);
+  updateTimeline();
+}
+function setInspection(mode: Inspection) {
+  inspection = mode;
+  playing = false;
+  amount = mode === "exploded" ? 0.6 : 0.5;
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-inspection]")
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.inspection === mode),
+      ),
+    );
+  $("inspection-range").hidden = mode === "assembled";
+  $("inspection-note").hidden = mode !== "assembled";
+  $("inspection-label").textContent =
+    mode === "section" ? "단면 위치" : "분해 거리";
+  inspectionSlider.value = String(amount);
+  $("inspection-value").textContent = `${Math.round(amount * 100)}%`;
+  viewer?.setInspection(mode, mode === "assembled" ? 0 : amount);
+  updateTimeline();
 }
 function setPlaying(value: boolean) {
-  playing = value;
+  if (!ready) return;
   if (value) {
-    $<HTMLInputElement>("exploded").checked = false;
-    viewer?.setOptions({ exploded: false });
-    if (time >= DURATION) time = 0;
+    setInspection("assembled");
+    if (time >= DURATION) seek(0);
+    last = performance.now();
   }
-  seek(time);
+  playing = value;
+  updateTimeline();
 }
-function stopAndSeek(t: number) {
+function stopAndSeek(value: number) {
   playing = false;
-  seek(t);
+  seek(value);
 }
+function updateRevision() {
+  if (!supportsBits()) head = "hex";
+  headSelect.value = head;
+  headSelect.disabled = !ready || !supportsBits();
+  $("head-note").textContent = supportsBits()
+    ? "헤드에 맞는 척·비트로 전환합니다. 변경하면 처음부터 시작합니다."
+    : "육각 헤드용 구조입니다. 십자·일자 헤드는 F 홈 인식·비트형 또는 G 종합형에서 선택하세요.";
+  $("model-title").textContent = revision.title;
+  $("model-summary").textContent = revision.summary;
+  $("revision-code").textContent = revision.code;
+  $("detail-title").textContent = revision.label;
+  $("revision-details").replaceChildren(
+    ...revision.details.map((detail) => {
+      const li = document.createElement("li");
+      li.textContent = detail;
+      return li;
+    }),
+  );
+  $("revision-features").replaceChildren(
+    ...revision.features.map((feature) => {
+      const span = document.createElement("span");
+      span.textContent =
+        REVISIONS.find((item) => item.id === feature)?.label ?? feature;
+      return span;
+    }),
+  );
+  $("revision-sources").replaceChildren(
+    ...revision.sources.map((source) => {
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = source.url;
+      link.textContent = `${source.label} ↗`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      li.append(link);
+      return li;
+    }),
+  );
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-revision]")
+    .forEach((button) =>
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.revision === revision.id),
+      ),
+    );
+  document.title = `${revision.label} · 볼트 그리퍼`;
+  syncUrl();
+  updateTimeline(true);
+}
+
 play.addEventListener("click", () => setPlaying(!playing));
-$("reset").addEventListener("click", () => stopAndSeek(0));
+$("reset").addEventListener("click", () => {
+  setInspection("assembled");
+  stopAndSeek(0);
+});
 timeline.addEventListener("input", () => stopAndSeek(Number(timeline.value)));
 $("prev").addEventListener("click", () =>
-  stopAndSeek(stages[Math.max(0, currentStage - 1)].start),
+  stopAndSeek(REVISION_STAGES[Math.max(0, currentStage - 1)].start),
 );
 $("next").addEventListener("click", () =>
-  stopAndSeek(stages[Math.min(stages.length - 1, currentStage + 1)].start),
+  stopAndSeek(
+    REVISION_STAGES[Math.min(REVISION_STAGES.length - 1, currentStage + 1)]
+      .start,
+  ),
 );
 document
   .querySelectorAll<HTMLButtonElement>("[data-stage]")
-  .forEach((b) =>
-    b.addEventListener("click", () =>
-      stopAndSeek(stages[Number(b.dataset.stage)].start),
+  .forEach((button) =>
+    button.addEventListener("click", () =>
+      stopAndSeek(REVISION_STAGES[Number(button.dataset.stage)].start),
     ),
   );
-function chooseVariant(value: Variant) {
-  variant = value;
-  playing = false;
-  viewer?.setVariant(value);
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-variant]")
-    .forEach((b) =>
-      b.setAttribute("aria-pressed", String(b.dataset.variant === value)),
-    );
-  $("variant-structure").textContent = VARIANTS[value].structure;
-  $("variant-motion").textContent = VARIANTS[value].motion;
-  $("variant-tradeoff").textContent = VARIANTS[value].tradeoff;
-  currentStage = -1;
-  updateUI();
-  const url = new URL(location.href);
-  url.searchParams.set("variant", value);
-  history.replaceState(null, "", url);
-}
-for (const value of ["a", "b"] as const)
-  $("variant-" + value)?.addEventListener("click", () => chooseVariant(value));
-$("compare-handoff")?.addEventListener("click", () => {
-  stopAndSeek(17.8);
-  view("detail");
-});
-$("compare-drive")?.addEventListener("click", () => {
-  $<HTMLInputElement>("transparent").checked = true;
-  viewer?.setOptions({ transparent: true });
-  stopAndSeek(40);
-  view("detail");
-});
-function view(name: ViewName) {
-  viewer?.setView(name);
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-view]")
-    .forEach((b) =>
-      b.setAttribute("aria-pressed", String(b.dataset.view === name)),
-    );
-}
 document
-  .querySelectorAll<HTMLButtonElement>("[data-view]")
-  .forEach((b) =>
-    b.addEventListener("click", () => view(b.dataset.view as ViewName)),
+  .querySelectorAll<HTMLButtonElement>("[data-revision]")
+  .forEach((button) =>
+    button.addEventListener("click", () => {
+      playing = false;
+      revision = getRevision(button.dataset.revision!);
+      updateRevision();
+      viewer?.setRevision(revision.id);
+      viewer?.setHead(head);
+      viewer?.setTime(time);
+      viewer?.setInspection(
+        inspection,
+        inspection === "assembled" ? 0 : amount,
+      );
+    }),
   );
 $("bolt").addEventListener("change", () => {
   const spec = PRESETS.find(
-    (p) => p.id === $<HTMLSelectElement>("bolt").value,
+    (item) => item.id === $<HTMLSelectElement>("bolt").value,
   )!;
-  playing = false;
-  time = 0;
   viewer?.setSpec(spec);
-  $("bolt-diameter").innerHTML = `${spec.diameter * 1000} <span>mm</span>`;
-  $("bolt-length").innerHTML = `${spec.length * 1000} <span>mm</span>`;
-  seek(0);
+  setInspection("assembled");
+  stopAndSeek(0);
 });
-for (const key of ["transparent", "labels", "inset", "exploded"] as const) {
-  $(key).addEventListener("change", () => {
-    const checked = $<HTMLInputElement>(key).checked;
-    if (key === "exploded" && checked) {
-      playing = false;
-      view("detail");
-    }
-    viewer?.setOptions({ [key]: checked });
-    updateUI();
-  });
-}
-$("rotate-left").addEventListener("click", () => viewer?.nudgeCamera(1));
-$("rotate-right").addEventListener("click", () => viewer?.nudgeCamera(-1));
+headSelect.addEventListener("change", () => {
+  head = HEADS.find((item) => item.id === headSelect.value)?.id ?? "hex";
+  if (!supportsBits()) head = "hex";
+  viewer?.setHead(head);
+  setInspection("assembled");
+  stopAndSeek(0);
+  updateRevision();
+});
+document
+  .querySelectorAll<HTMLButtonElement>("[data-inspection]")
+  .forEach((button) =>
+    button.addEventListener("click", () =>
+      setInspection(button.dataset.inspection as Inspection),
+    ),
+  );
+inspectionSlider.addEventListener("input", () => {
+  playing = false;
+  amount = Number(inspectionSlider.value);
+  $("inspection-value").textContent = `${Math.round(amount * 100)}%`;
+  viewer?.setInspection(inspection, amount);
+  updateTimeline();
+});
+document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) =>
+  button.addEventListener("click", () => {
+    viewer?.setView(button.dataset.view as "perspective" | "front" | "side");
+    document
+      .querySelectorAll<HTMLButtonElement>("[data-view]")
+      .forEach((item) =>
+        item.setAttribute("aria-pressed", String(item === button)),
+      );
+  }),
+);
+$("rotate-left").addEventListener("click", () => viewer?.rotate(-1));
+$("rotate-right").addEventListener("click", () => viewer?.rotate(1));
 $("zoom-in").addEventListener("click", () => viewer?.zoom(0.8));
 $("zoom-out").addEventListener("click", () => viewer?.zoom(1.25));
-function showError(message: string) {
-  failed = true;
-  ready = false;
-  playing = false;
-  $("loading").hidden = false;
-  $("loading").setAttribute("role", "alert");
-  $("loading").replaceChildren();
-  const strong = document.createElement("strong");
-  strong.textContent = "3D 화면을 열 수 없습니다";
-  const p = document.createElement("p");
-  p.textContent = message;
-  const b = document.createElement("button");
-  b.textContent = "다시 불러오기";
-  b.onclick = () => location.reload();
-  $("loading").append(strong, p, b);
-  play.disabled = true;
-  timeline.disabled = true;
+
+function setReady(value: boolean) {
+  ready = value;
   document
     .querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
-      "[data-stage], #reset, #prev, #next, [data-view], .camera-buttons button, .sidebar input, .sidebar select, [data-variant], #compare-handoff, #compare-drive, #speed",
+      ".view-controls button, .camera-controls button, .inspection-controls button, .transport button, .transport input, .transport select, .bolt-fields select, #inspection-amount",
     )
-    .forEach((b) => (b.disabled = true));
-  updateUI();
-}
-$("viewport").addEventListener("viewer-error", (e) =>
-  showError((e as CustomEvent<string>).detail),
-);
-async function start() {
-  try {
-    viewer = new Viewer(
-      $("viewport"),
-      $("inset-label"),
-      R09
-        ? {
-            makeGripper: () => makeCompactGripper(undefined, design),
-            joints: (t, id) => compactJoints(t, id, design),
-            boltWorld: (t, spec) => compactBoltWorld(t, spec, design),
-            focusZ: BODY.length / 2000, // Centre the housing so a close-up includes the whole tool.
-            keyways: false,
-            neighbourPitch: (spec) => (minPitch(spec) + 0.5) / 1000,
-            detailLift: 0.16,
-          }
-        : undefined,
-    );
-    await viewer.load((n) => {
-      const progress = document.getElementById("load-progress");
-      if (progress)
-        progress.textContent = `FR3 링크 ${n} / 8 · ${R09 ? D.label : "자동 조절 헤드 척"}`;
+    .forEach((control) => {
+      control.disabled = !value;
     });
+  headSelect.disabled = !value || !supportsBits();
+  updateTimeline();
+}
+function showError(message: string) {
+  failed = true;
+  playing = false;
+  setReady(false);
+  $("loading").hidden = false;
+  $("loading").classList.add("failed");
+  $("loading-title").textContent = "3D 화면을 표시할 수 없습니다";
+  $("loading-text").textContent =
+    message || "WebGL을 사용할 수 있는 브라우저에서 다시 불러오세요.";
+  $("retry").hidden = false;
+}
+async function load() {
+  viewer?.dispose();
+  viewer = undefined;
+  failed = false;
+  setReady(false);
+  $("loading").hidden = false;
+  $("loading").classList.remove("failed");
+  $("loading-title").textContent = "3D 모델을 준비하고 있습니다";
+  $("loading-text").textContent = "잠시 후 구조와 동작을 살펴볼 수 있습니다.";
+  $("retry").hidden = true;
+  try {
+    viewer = new RevisionViewer($("viewport"), showError);
+    await viewer.load();
     if (failed) return;
-    ready = true;
-    document
-      .querySelectorAll<HTMLButtonElement>(
-        ".camera-buttons button, [data-view]",
-      )
-      .forEach((b) => (b.disabled = false));
+    viewer.setRevision(revision.id);
+    viewer.setSpec(
+      PRESETS.find((spec) => spec.id === $<HTMLSelectElement>("bolt").value)!,
+    );
+    viewer.setHead(head);
+    viewer.setTime(time);
+    viewer.setInspection(inspection, inspection === "assembled" ? 0 : amount);
+    setReady(true);
     $("loading").hidden = true;
-    play.disabled = false;
-    timeline.disabled = false;
-    $<HTMLButtonElement>("reset").disabled = false;
-    document
-      .querySelectorAll<HTMLButtonElement>("[data-stage]")
-      .forEach((b) => (b.disabled = false));
-    const params = new URLSearchParams(location.search);
-    if (!R09 && params.get("variant") === "b") chooseVariant("b");
-    const initialTime = Number(params.get("time") ?? 0);
-    seek(Number.isFinite(initialTime) ? initialTime : 0);
-    const initialView = params.get("view");
-    if (["whole", "detail", "front", "side"].includes(initialView ?? ""))
-      view(initialView as ViewName);
   } catch (error) {
-    console.error(error);
-    showError("WebGL 지원 여부와 모델 파일 연결을 확인한 뒤 다시 불러오세요.");
+    showError(
+      error instanceof Error ? error.message : "모델을 다시 불러오세요.",
+    );
   }
 }
+$("retry").addEventListener("click", () => void load());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) setPlaying(false);
+});
 function frame(now: number) {
-  // Wall-clock playback stays at the selected speed even on a low-FPS GPU.
-  // visibilitychange resets the clock and pauses before a hidden-tab gap.
-  const dt = Math.max(0, (now - last) / 1000);
-  last = now;
-  if (playing && ready) {
-    time = Math.min(
-      DURATION,
-      time + dt * Number($<HTMLSelectElement>("speed").value),
-    );
-    if (time === DURATION) playing = false;
-    seek(time);
+  if (ready && playing) {
+    const delta = Math.min((now - last) / 1000, 0.1);
+    seek(time + delta * Number($<HTMLSelectElement>("speed").value));
+    if (time >= DURATION) setPlaying(false);
   }
-  if (!failed) viewer?.render();
+  last = now;
+  if (ready) viewer?.render();
   animationId = requestAnimationFrame(frame);
 }
-document.addEventListener("visibilitychange", () => {
-  last = performance.now();
-  if (document.hidden && playing) setPlaying(false);
-});
 window.addEventListener("pagehide", (event) => {
-  if (event.persisted) return;
+  if (event.persisted) {
+    setPlaying(false);
+    return;
+  }
   cancelAnimationFrame(animationId);
   viewer?.dispose();
 });
-void start();
+updateRevision();
+void load();
 animationId = requestAnimationFrame(frame);

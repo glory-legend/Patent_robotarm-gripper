@@ -50,18 +50,3 @@ await cp(
   { recursive: true },
 );
 console.log("Prepared vendored Robotiq 2F-85 meshes and attribution.");
-
-await cp(
-  new URL("../R06.md", import.meta.url),
-  new URL("../public/design-notes.md", import.meta.url),
-);
-
-await cp(
-  new URL("../MECHANICAL_REVIEW.md", import.meta.url),
-  new URL("../public/mechanical-review.md", import.meta.url),
-);
-
-await cp(
-  new URL("../R08.md", import.meta.url),
-  new URL("../public/integrated-review.md", import.meta.url),
-);
