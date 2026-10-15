@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { Box3, Quaternion, Vector3 } from "three";
+import { Box3, Matrix4, Quaternion, Vector3 } from "three";
 import { PRESETS } from "../src/timeline";
 import { HEADS, REVISION_STAGES } from "../src/revision-config";
 import { flangeAtPath, ROBOT_DATA } from "../src/kinematics";
@@ -93,33 +93,29 @@ test("the complete FR3 reaches the tool path within joint limits and flange erro
 });
 
 test.each(PRESETS)(
-  "$id starts with both head and shank in contact with a fixed support",
+  "$id starts on the pile and clears the bin rim before righting",
   (spec) => {
-    for (const head of ["hex", "phillips", "slotted"] as const) {
-      const model = makeRevisionGripper("integrated", spec, head);
-      const bolt = model.root.getObjectByName("held-bolt")!;
-      const fixtures = makeRevisionFixtures(spec, head);
-      fixtures.root.add(bolt);
-      bolt.matrix.copy(revisionBoltWorld(0, spec, "integrated", head));
-      fixtures.root.updateMatrixWorld(true);
-      const shank = new Box3().setFromObject(
-        bolt.getObjectByName("bolt-shank")!,
-        true,
+    for (const head of HEADS) {
+      const fixtures = makeRevisionFixtures(spec, head.id);
+      const initial = new Matrix4()
+        .makeTranslation(CELL.pickupX, 0, 0)
+        .multiply(fixtures.pile.targetMatrix);
+      const actual = revisionBoltWorld(0, spec, "integrated", head.id);
+      initial.elements.forEach((value, index) =>
+        expect(value).toBeCloseTo(actual.elements[index], 8),
       );
-      const headBox = new Box3().setFromObject(
-        bolt.getObjectByName(
-          head === "hex" ? "hex-bolt-head" : "head-recess-floor",
-        )!,
-        true,
-      );
-      const shankRest = new Box3().setFromObject(
-        fixtures.root.getObjectByName("shank-rest")!,
-      );
-      const headRest = new Box3().setFromObject(
-        fixtures.root.getObjectByName("head-rest")!,
-      );
-      expect(Math.abs(shank.max.z - shankRest.min.z)).toBeLessThan(1e-7);
-      expect(Math.abs(headBox.max.z - headRest.min.z)).toBeLessThan(1e-5);
+      const model = makeRevisionGripper("integrated", spec, head.id);
+      fixtures.root.add(model.bolt);
+      for (const time of [8, 9, 10, 11, 12, 13, 14]) {
+        model.bolt.matrix.copy(
+          revisionBoltWorld(time, spec, "integrated", head.id),
+        );
+        fixtures.root.updateMatrixWorld(true);
+        const bounds = new Box3().setFromObject(model.bolt, true);
+        expect(bounds.max.z, `${spec.id}/${head.id} @ ${time}`).toBeLessThan(
+          fixtures.pile.rimZ - 0.005,
+        );
+      }
     }
   },
 );
@@ -172,4 +168,16 @@ test("stage seeks still converge after changing heads and restarting the cycle",
         ).toBeLessThan(0.0001);
         seed = solved.joints;
       }
+});
+
+test("pickup uses a multilayer bolt bin instead of an isolated support stand", () => {
+  const fixtures = makeRevisionFixtures(PRESETS[1], "hex");
+  const bolts: string[] = [];
+  fixtures.pickup.traverse((object) => {
+    if (/^pile-bolt-\d+$/.test(object.name)) bolts.push(object.name);
+  });
+  expect(bolts.length).toBeGreaterThanOrEqual(20);
+  expect(fixtures.pickup.getObjectByName("head-rest")).toBeUndefined();
+  expect(fixtures.pickup.getObjectByName("shank-rest")).toBeUndefined();
+  expect(fixtures.pickup.getObjectByName("bin-floor")).toBeDefined();
 });

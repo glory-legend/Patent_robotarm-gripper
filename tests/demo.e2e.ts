@@ -124,3 +124,31 @@ test("a cached page keeps its canvas alive and responds after resizing", async (
   );
   expect(errors).toEqual([]);
 });
+
+test("the bin close-up follows pickup from a bolt pile through preliminary threading", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/?revision=integrated");
+  await expect(page.locator("#play")).toBeEnabled();
+  await page.locator('[data-view="pickup"]').click();
+  await expect(page.locator('[data-view="pickup"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(page.locator("#phase-title")).toHaveText(
+    "무더기 상단 볼트 접근",
+  );
+  const before = await page.locator("canvas").screenshot();
+  await page.locator("#timeline").fill("8");
+  expect((await page.locator("canvas").screenshot()).equals(before)).toBe(
+    false,
+  );
+  for (const time of [14, 22, 36, 60, 63, 70]) {
+    await page.locator("#timeline").fill(String(time));
+    await expect(page.locator("#play")).toBeEnabled();
+    await expect(page.locator("#loading")).toBeHidden();
+  }
+  expect(errors).toEqual([]);
+});

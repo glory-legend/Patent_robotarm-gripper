@@ -3,19 +3,18 @@ import { ROBOT_DATA, originMatrix } from "./kinematics";
 import { ramp, type BoltSpec } from "./timeline";
 import { type HeadType, type RevisionId } from "./revision-config";
 import {
-  HEAD_ANGLE,
   REVISION_BODY,
   revisionBoltMatrix,
   revisionPose,
 } from "./revision-motion";
 import { makeRevisionWorkpiece } from "./revision-model";
+import { makeRevisionPile, revisionPilePickupAxisZ } from "./revision-pile";
 
 // Cell coordinates are metres, with +Z downward, matching the tool's working axis.
 export const CELL = {
   pickupX: -0.1,
   fastenX: 0.1,
   plateZ: 0.1,
-  pickupAxisZ: 0.09,
   tableZ: 0.17,
 };
 export const ROBOT_BASE = new T.Matrix4()
@@ -31,9 +30,10 @@ export function revisionScenePose(
   const p = revisionPose(time, spec, id, head),
     t = p.time;
   const pickupZ =
-    CELL.pickupAxisZ - (REVISION_BODY.feed + REVISION_BODY.grasp) / 1000;
-  const liftZ = pickupZ - 0.08;
-  let z = pickupZ - 0.03 * (1 - ramp(t, 0, 3)) - 0.08 * ramp(t, 5, 8);
+    revisionPilePickupAxisZ(spec, head) -
+    (REVISION_BODY.feed + REVISION_BODY.grasp) / 1000;
+  const liftZ = pickupZ - 0.09;
+  let z = pickupZ - 0.03 * (1 - ramp(t, 0, 3)) - 0.09 * ramp(t, 5, 8);
   let x = CELL.pickupX + (CELL.fastenX - CELL.pickupX) * ramp(t, 31, 34);
   if (t >= 34)
     z = T.MathUtils.lerp(liftZ, CELL.plateZ - spec.length, ramp(t, 34, 36));
@@ -177,11 +177,12 @@ export function solveRevisionJoints(target: T.Matrix4, seed = initialJoints) {
 }
 
 export function makeRevisionFixtures(spec: BoltSpec, head: HeadType) {
+  const pile = makeRevisionPile(spec, head);
   const root = new T.Group(),
-    pickup = new T.Group(),
+    pickup = pile.root,
     workpiece = makeRevisionWorkpiece(spec);
   root.name = "fixed-cell-fixtures";
-  pickup.name = "pickup-cradle";
+  pickup.name = "bolt-bin";
   pickup.position.x = CELL.pickupX;
   workpiece.name = "fixed-threaded-workpiece";
   workpiece.position.set(CELL.fastenX, 0, CELL.plateZ);
@@ -227,56 +228,5 @@ export function makeRevisionFixtures(spec: BoltSpec, head: HeadType) {
         [x, y, (CELL.tableZ - CELL.plateZ + 0.008) / 2],
         dark,
       );
-  const r = spec.diameter / 2;
-  const hexRadius = spec.headWidth / Math.sqrt(3);
-  const cylinderDepth = Math.max(
-    ...Array.from({ length: 32 }, (_, k) =>
-      Math.cos(HEAD_ANGLE + (k * 2 * Math.PI) / 32),
-    ),
-  );
-  const headDepth =
-    head === "hex"
-      ? Math.max(
-          ...Array.from(
-            { length: 6 },
-            (_, k) =>
-              Math.sin(Math.PI / 6 + (k * Math.PI) / 3 + HEAD_ANGLE) *
-              hexRadius,
-          ),
-        )
-      : (spec.headWidth / 2) * cylinderDepth;
-  box(
-    pickup,
-    "pickup-base",
-    [0.05, spec.length + spec.headHeight + 0.016, 0.01],
-    [
-      0,
-      (spec.length - spec.headHeight) / 2 - REVISION_BODY.grasp / 1000,
-      CELL.tableZ - 0.005,
-    ],
-    dark,
-  );
-  for (const [name, y, depth, width] of [
-    [
-      "head-rest",
-      -spec.headHeight / 2 - REVISION_BODY.grasp / 1000,
-      headDepth,
-      spec.headHeight - 0.0004,
-    ],
-    [
-      "shank-rest",
-      spec.length - 0.004 - REVISION_BODY.grasp / 1000,
-      r * cylinderDepth,
-      0.003,
-    ],
-  ] as const) {
-    const top = CELL.pickupAxisZ + depth;
-    box(
-      pickup,
-      name,
-      [spec.headWidth + 0.004, width, CELL.tableZ - 0.01 - top],
-      [0, y, (top + CELL.tableZ - 0.01) / 2],
-    );
-  }
-  return { root, pickup, workpiece };
+  return { root, pickup, workpiece, pile };
 }

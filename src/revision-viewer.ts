@@ -8,6 +8,7 @@ import { makeRevisionGripper } from "./revision-model";
 import { HEAD_ANGLE, REVISION_BODY, revisionPose } from "./revision-motion";
 import {
   ROBOT_BASE,
+  CELL,
   makeRevisionFixtures,
   revisionScenePose,
   revisionBoltWorld,
@@ -36,7 +37,7 @@ export class RevisionViewer {
   private head: HeadType = "hex";
   private time = 0;
   private mode: InspectionMode = "assembled";
-  private view: "perspective" | "front" | "side" = "perspective";
+  private view: "perspective" | "front" | "side" | "pickup" = "perspective";
   private amount = 0.5;
   private resizeObserver: ResizeObserver;
   private labels: HTMLSpanElement[] = [];
@@ -61,7 +62,7 @@ export class RevisionViewer {
     this.renderer.domElement.setAttribute("role", "img");
     this.renderer.domElement.setAttribute(
       "aria-label",
-      "볼트 그리퍼 구조와 동작 3D 장면",
+      "볼트 무더기에서 한 개를 집어 가체결하는 그리퍼 3D 장면",
     );
     this.host.prepend(this.renderer.domElement);
     this.vision.className = "vision-alignment";
@@ -263,18 +264,22 @@ export class RevisionViewer {
       this.vision.innerHTML = `<strong>홈 방향 정렬 · 예시</strong><svg viewBox="0 0 180 72" aria-hidden="true"><circle cx="42" cy="35" r="24"/><circle cx="133" cy="35" r="24"/><g transform="translate(42 35) rotate(${(-HEAD_ANGLE * 180) / Math.PI})" class="groove"><path d="M-15 0H15"/>${cross}</g><g transform="translate(133 35) rotate(${-degrees})" class="driver"><path d="M-15 0H15"/>${cross}</g><path class="arrow" d="M78 35h20m-5-5 5 5-5 5"/></svg><p>홈 38° <span>비트 ${degrees.toFixed(0)}°</span></p><small>${this.time < 27 ? "비트 후퇴 · 홈 촬영" : this.time < 29 ? "홀더 잠금 · 비트만 정렬" : "상대 깊이 확인 · 비트 삽입"}</small>`;
     }
   }
-  setView(view: "perspective" | "front" | "side") {
+  setView(view: "perspective" | "front" | "side" | "pickup") {
     this.view = view;
     const target =
-      view === "perspective"
-        ? new T.Vector3(-0.12, 0.18, 0)
-        : new T.Vector3(0, 0.04, 0);
+      view === "pickup"
+        ? new T.Vector3(CELL.pickupX, -0.105, 0.015)
+        : view === "perspective"
+          ? new T.Vector3(-0.12, 0.18, 0)
+          : new T.Vector3(0, 0.04, 0);
     const offset =
-      view === "front"
-        ? new T.Vector3(0, 0.035, 0.65)
-        : view === "side"
-          ? new T.Vector3(0.65, 0.035, 0)
-          : new T.Vector3(0.6, 0.3, 1.1);
+      view === "pickup"
+        ? new T.Vector3(0.2, 0.27, 0.4)
+        : view === "front"
+          ? new T.Vector3(0, 0.035, 0.65)
+          : view === "side"
+            ? new T.Vector3(0.65, 0.035, 0)
+            : new T.Vector3(0.6, 0.3, 1.1);
     if (this.mode !== "assembled") {
       target
         .set(0, 0, -REVISION_BODY.length / 2)

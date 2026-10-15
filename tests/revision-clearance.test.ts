@@ -554,15 +554,20 @@ test("fixed scene solids support the external bolt before pickup and after relea
         const scene = revisionScenePose(time, spec, "integrated", head.id);
         fixture.root.position.copy(scene.tool).multiplyScalar(-1000);
         fixture.root.updateMatrixWorld(true);
-        const supports =
+        const supports: [Solid, T.Mesh][] =
           scene.owner === "pickup"
-            ? ([
-                [shank, "shank-rest"],
-                [headSolid, "head-rest"],
-              ] as const)
-            : ([[headSolid, "workpiece-plate"]] as const);
-        for (const [target, name] of supports) {
-          const support = fixture.root.getObjectByName(name) as T.Mesh;
+            ? fixture.pile.contacts.map(({ targetPart, support }) => [
+                targetPart === "head" ? headSolid : shank,
+                support,
+              ])
+            : [
+                [
+                  headSolid,
+                  fixture.root.getObjectByName("workpiece-plate") as T.Mesh,
+                ],
+              ];
+        for (const [target, support] of supports) {
+          const name = support.name;
           const gap =
             target.bvh.closestPointToGeometry(
               support.geometry,
@@ -803,4 +808,68 @@ test("rotor journals retain coaxial bearing support while turning and withdrawin
         }
       }
     }
+}, 240000);
+
+test("pickup and return clear every bolt and wall in the fixed bin", () => {
+  const failures: object[] = [];
+  const times = [
+    ...Array.from({ length: 41 }, (_, i) => i * 0.2),
+    9,
+    10,
+    11,
+    12,
+    14,
+    ...Array.from({ length: 11 }, (_, i) => 65 + i * 0.5),
+  ];
+  for (const spec of PRESETS)
+    for (const revision of REVISIONS)
+      for (const head of revision.features.includes("drive")
+        ? HEADS
+        : [HEADS[0]]) {
+        const key = `${revision.id}/${spec.id}/${head.id}`;
+        if (process.env.BIN_CASE && process.env.BIN_CASE !== key) continue;
+        const fixtures = makeRevisionFixtures(spec, head.id);
+        fixtures.root.scale.setScalar(1000);
+        fixtures.root.updateMatrixWorld(true);
+        const obstacles: { body: T.Mesh; bounds: T.Box3 }[] = [];
+        fixtures.pickup.traverse((o) => {
+          if (!(o instanceof T.Mesh)) return;
+          const body = new T.Mesh(
+            o.geometry.clone().applyMatrix4(o.matrixWorld),
+          );
+          body.name = o.name;
+          body.updateMatrixWorld(true);
+          obstacles.push({ body, bounds: new T.Box3().setFromObject(body) });
+        });
+        const model = makeRevisionGripper(revision.id, spec, head.id);
+        model.root.scale.setScalar(1);
+        const parts: T.Mesh[] = [];
+        model.root.traverse((o) => {
+          if (o instanceof T.Mesh) parts.push(o);
+        });
+        const found = new Set<string>();
+        for (const time of times) {
+          const { tool } = revisionScenePose(time, spec, revision.id, head.id);
+          model.root.position.copy(tool).multiplyScalar(1000);
+          updateActualScene(model, time, spec, revision.id, head.id);
+          model.root.updateMatrixWorld(true);
+          for (const part of parts) {
+            const bounds = new T.Box3().setFromObject(part);
+            for (const obstacle of obstacles) {
+              const pair = `${part.name}/${obstacle.body.name}`;
+              if (found.has(pair) || !bounds.intersectsBox(obstacle.bounds))
+                continue;
+              const hit = collision(solid(part), solid(obstacle.body));
+              if (!hit || hit.depth <= epsilon + 1e-5) continue;
+              failures.push({ key, time, pair, ...hit });
+              found.add(pair);
+            }
+          }
+        }
+      }
+  writeFileSync(
+    `${reportPrefix}-bin-clearance.json`,
+    JSON.stringify(failures, null, 2),
+  );
+  expect(failures).toEqual([]);
 }, 240000);

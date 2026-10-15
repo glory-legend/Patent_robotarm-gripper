@@ -32,7 +32,7 @@ app.innerHTML = `
     <section class="model-sheet" aria-labelledby="model-title">
       <div class="scene-heading"><div><p class="eyebrow">집기 · 정렬 · 인계 · 가체결</p><h1 id="model-title">${revision.title}</h1><p id="model-summary">${revision.summary}</p></div><div class="drawing-mark" aria-label="선택한 설계안"><span>설계안</span><strong id="revision-code">${revision.code}</strong></div></div>
       <div id="viewport" class="viewport" aria-label="그리퍼 3D 모델">
-        <div class="view-controls" role="group" aria-label="시점 선택"><button data-view="perspective" aria-pressed="true" disabled>입체</button><button data-view="front" aria-pressed="false" disabled>정면</button><button data-view="side" aria-pressed="false" disabled>측면</button></div>
+        <div class="view-controls" role="group" aria-label="시점 선택"><button data-view="perspective" aria-pressed="true" disabled>입체</button><button data-view="front" aria-pressed="false" disabled>정면</button><button data-view="side" aria-pressed="false" disabled>측면</button><button data-view="pickup" aria-pressed="false" disabled>무더기</button></div>
         <div class="camera-controls" role="group" aria-label="카메라 조작"><button id="rotate-left" aria-label="시점 왼쪽으로 회전" title="시점 왼쪽으로 회전" disabled>↶</button><button id="rotate-right" aria-label="시점 오른쪽으로 회전" title="시점 오른쪽으로 회전" disabled>↷</button><button id="zoom-in" aria-label="확대" title="확대" disabled>＋</button><button id="zoom-out" aria-label="축소" title="축소" disabled>−</button></div>
         <div id="loading" class="loading" role="status"><span class="loader" aria-hidden="true"></span><strong id="loading-title">3D 모델을 준비하고 있습니다</strong><p id="loading-text">잠시 후 구조와 동작을 살펴볼 수 있습니다.</p><button id="retry" hidden>다시 불러오기</button></div>
         <p class="model-caption">구조·동작 개념 모델</p><span class="orbit-hint">드래그로 회전 · 스크롤로 확대</span>
@@ -290,7 +290,9 @@ inspectionSlider.addEventListener("input", () => {
 });
 document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) =>
   button.addEventListener("click", () => {
-    viewer?.setView(button.dataset.view as "perspective" | "front" | "side");
+    viewer?.setView(
+      button.dataset.view as "perspective" | "front" | "side" | "pickup",
+    );
     document
       .querySelectorAll<HTMLButtonElement>("[data-view]")
       .forEach((item) =>
